@@ -1,0 +1,11 @@
+[editor]
+char_width = 9.600000381469727
+line_height = 22.0
+padding = 4.0
+gutter_width = 48.0
+
+[window]
+width = 1200.0
+height = 800.0
+min_width = 600.0
+min_height = 400.0
