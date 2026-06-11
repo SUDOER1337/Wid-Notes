@@ -17,5 +17,8 @@ fix:
 build-release:
     cargo build --release
 
+install:
+    cargo install --path .
+
 clean:
     cargo clean

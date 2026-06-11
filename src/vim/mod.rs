@@ -138,6 +138,9 @@ enum ChangeRecord {
         line: usize,
         count: usize,
     },
+    ToggleCaseRange(std::ops::Range<usize>),
+    LowercaseRange(std::ops::Range<usize>),
+    UppercaseRange(std::ops::Range<usize>),
     Yank,
 }
 
@@ -1398,6 +1401,7 @@ impl VimState {
                         }
                         pos += 1;
                     }
+                    self.last_change = Some(ChangeRecord::ToggleCaseRange(range));
                     log::info!("Visual toggle case");
                 }
                 buffer.clear_selection();
@@ -1473,8 +1477,9 @@ impl VimState {
                 // no-op in command line
             }
             KeyPress::Ctrl('u') => {
+                let prefix = self.command_line.chars().next().unwrap_or(':');
                 self.command_line.clear();
-                self.command_line.push(':');
+                self.command_line.push(prefix);
             }
             KeyPress::Ctrl('w') => {
                 let trimmed = self.command_line.trim_end();
@@ -1855,6 +1860,7 @@ impl VimState {
                     }
                     pos += 1;
                 }
+                self.last_change = Some(ChangeRecord::ToggleCaseRange(range));
             }
             Operator::Lowercase => {
                 let safe_start = (range.start..buffer.text.len())
@@ -1872,6 +1878,7 @@ impl VimState {
                     buffer.text.insert_str(safe_start, &s);
                     buffer.cursor = safe_start + s.len();
                 }
+                self.last_change = Some(ChangeRecord::LowercaseRange(range));
             }
             Operator::Uppercase => {
                 let safe_start = (range.start..buffer.text.len())
@@ -1889,6 +1896,7 @@ impl VimState {
                     buffer.text.insert_str(safe_start, &s);
                     buffer.cursor = safe_start + s.len();
                 }
+                self.last_change = Some(ChangeRecord::UppercaseRange(range));
             }
             Operator::Indent => {
                 let start_line = buffer.line_col(range.start).0;
@@ -1982,6 +1990,53 @@ impl VimState {
                     } else if buffer.text[ls..].starts_with('\t') {
                         buffer.delete(ls..ls + 1);
                     }
+                }
+            }
+            ChangeRecord::ToggleCaseRange(range) => {
+                let mut pos = range.start;
+                while pos < range.end && pos < buffer.text.len() {
+                    if buffer.text.is_char_boundary(pos) {
+                        if let Some(c) = buffer.text[pos..].chars().next() {
+                            buffer.toggle_case_at(pos);
+                            pos += c.len_utf8();
+                            continue;
+                        }
+                    }
+                    pos += 1;
+                }
+            }
+            ChangeRecord::LowercaseRange(range) => {
+                let safe_start = (range.start..buffer.text.len())
+                    .find(|&i| buffer.text.is_char_boundary(i))
+                    .unwrap_or(range.start);
+                let safe_end = (range.end..=buffer.text.len())
+                    .find(|&i| i == buffer.text.len() || buffer.text.is_char_boundary(i))
+                    .unwrap_or(range.end);
+                if safe_start < safe_end {
+                    let s: String = buffer.text[safe_start..safe_end]
+                        .chars()
+                        .flat_map(|c| c.to_lowercase())
+                        .collect();
+                    buffer.text.drain(safe_start..safe_end);
+                    buffer.text.insert_str(safe_start, &s);
+                    buffer.cursor = safe_start + s.len();
+                }
+            }
+            ChangeRecord::UppercaseRange(range) => {
+                let safe_start = (range.start..buffer.text.len())
+                    .find(|&i| buffer.text.is_char_boundary(i))
+                    .unwrap_or(range.start);
+                let safe_end = (range.end..=buffer.text.len())
+                    .find(|&i| i == buffer.text.len() || buffer.text.is_char_boundary(i))
+                    .unwrap_or(range.end);
+                if safe_start < safe_end {
+                    let s: String = buffer.text[safe_start..safe_end]
+                        .chars()
+                        .flat_map(|c| c.to_uppercase())
+                        .collect();
+                    buffer.text.drain(safe_start..safe_end);
+                    buffer.text.insert_str(safe_start, &s);
+                    buffer.cursor = safe_start + s.len();
                 }
             }
             ChangeRecord::Yank => {} // no-op on replay

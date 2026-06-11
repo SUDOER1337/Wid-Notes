@@ -1,15 +1,18 @@
 use crate::editor::{Buffer, SelectionMode};
 use crate::settings::Settings;
+use crate::theme::{EditorColors, Theme};
 use crate::vim::{KeyPress, Mode, VimState};
-use egui::{self, Align2, Color32, Event, FontId, Pos2, Rect, Vec2};
+use egui::{self, Align2, Event, FontId, Pos2, Rect, Vec2};
 
 pub fn editor_ui(
     ui: &mut egui::Ui,
     state: &mut VimState,
     buffer: &mut Buffer,
     settings: &Settings,
+    theme: &Theme,
 ) {
     let es = &settings.editor;
+    let ec = &theme.editor;
     let available = ui.available_size();
     let (rect, response) = ui.allocate_exact_size(available, egui::Sense::click());
 
@@ -33,7 +36,7 @@ pub fn editor_ui(
         }
     });
 
-    paint_buffer(ui, buffer, state, rect, es);
+    paint_buffer(ui, buffer, state, rect, es, ec);
 }
 
 fn cursor_from_click(
@@ -61,6 +64,7 @@ fn paint_buffer(
     state: &VimState,
     rect: Rect,
     es: &crate::settings::EditorSettings,
+    ec: &EditorColors,
 ) {
     let painter = ui.painter_at(rect);
     let font_id = FontId::monospace(16.0);
@@ -68,7 +72,7 @@ fn paint_buffer(
     let inner = rect.shrink2(Vec2::new(es.padding, es.padding));
     let text_start_x = inner.left() + es.gutter_width;
 
-    painter.rect_filled(rect, 0.0, Color32::from_rgb(30, 30, 30));
+    painter.rect_filled(rect, 0.0, ec.background);
 
     if buffer.text.is_empty() {
         let hint = match state.mode {
@@ -81,14 +85,14 @@ fn paint_buffer(
             Align2::LEFT_TOP,
             hint,
             font_id.clone(),
-            Color32::from_rgb(100, 100, 100),
+            ec.line_numbers,
         );
         if state.mode == Mode::Insert {
             let block = Rect::from_min_size(
                 Pos2::new(text_start_x, inner.top()),
                 Vec2::new(2.0, es.line_height),
             );
-            painter.rect_filled(block, 0.0, Color32::YELLOW);
+            painter.rect_filled(block, 0.0, ec.cursor_insert);
         }
         return;
     }
@@ -138,7 +142,7 @@ fn paint_buffer(
                 painter.rect_filled(
                     Rect::from_min_size(Pos2::new(sx, y), Vec2::new(ex - sx, es.line_height)),
                     0.0,
-                    Color32::from_rgb(50, 70, 100),
+                    ec.selection_bg,
                 );
             }
         }
@@ -150,7 +154,7 @@ fn paint_buffer(
             Align2::LEFT_TOP,
             &line_num,
             font_id.clone(),
-            Color32::from_rgb(80, 80, 80),
+            ec.line_numbers,
         );
 
         // Line text
@@ -159,7 +163,7 @@ fn paint_buffer(
             Align2::LEFT_TOP,
             line_text,
             font_id.clone(),
-            Color32::from_rgb(220, 220, 220),
+            ec.foreground,
         );
 
         // Cursor (always visible — editor processes events regardless of focus)
@@ -174,8 +178,8 @@ fn paint_buffer(
                         Vec2::new(block_w, es.line_height),
                     );
                     let color = match state.mode {
-                        Mode::Visual(_) => Color32::from_rgb(200, 150, 255),
-                        _ => Color32::YELLOW,
+                        Mode::Visual(_) => ec.cursor_visual,
+                        _ => ec.cursor,
                     };
                     painter.rect_filled(block, 0.0, color);
                     if let Some(c) = ch {
@@ -184,14 +188,14 @@ fn paint_buffer(
                             Align2::LEFT_TOP,
                             c.to_string(),
                             font_id.clone(),
-                            Color32::from_rgb(30, 30, 30),
+                            ec.background,
                         );
                     }
                 }
                 Mode::Insert => {
                     let bar =
                         Rect::from_min_size(Pos2::new(cursor_x, y), Vec2::new(2.0, es.line_height));
-                    painter.rect_filled(bar, 0.0, Color32::YELLOW);
+                    painter.rect_filled(bar, 0.0, ec.cursor_insert);
                 }
                 Mode::CommandLine => {
                     // Don't draw cursor in command line mode — the text input is shown in status bar

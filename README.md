@@ -1,10 +1,10 @@
-# RustNote
+# Nortex
 
 A local-first knowledge workspace built with Rust and egui.
 
 Markdown files are the source of truth. Vim is the primary interaction model. Everything works offline.
 
-Inspired by Logseq, Emacs, and Zed.
+Inspired by Logseq, Emacs, Penpot and Zed.
 
 ## Current Status — v0.1 MVP
 
@@ -122,7 +122,7 @@ The journal file naming convention is `YYYY_MM_DD.md` (e.g., `2026_06_09.md`). T
 
 ## Non-Goals
 
-RustNote will NOT become:
+Nortex will NOT become:
 
 - Notion / Obsidian / Roam clone
 - Electron or web application

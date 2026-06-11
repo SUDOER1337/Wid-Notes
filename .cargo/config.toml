@@ -3,6 +3,3 @@ opt-level = 0
 debug = 1
 incremental = true
 codegen-units = 128
-
-[env]
-LIBRARY_PATH = "D:\\Tools\\mingw64\\lib"

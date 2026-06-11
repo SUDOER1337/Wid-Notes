@@ -644,6 +644,9 @@ impl Buffer {
 
     pub fn inner_quote(&self, cursor: usize, quote: char) -> Option<Range<usize>> {
         let pos = cursor.min(self.text.len().saturating_sub(1));
+        if pos + 1 > self.text.len() {
+            return None;
+        }
         let before = &self.text[..pos + 1];
         let after = &self.text[pos..];
         let open = before.rfind(quote)?;
@@ -657,6 +660,9 @@ impl Buffer {
 
     pub fn a_quote(&self, cursor: usize, quote: char) -> Option<Range<usize>> {
         let pos = cursor.min(self.text.len().saturating_sub(1));
+        if pos + 1 > self.text.len() {
+            return None;
+        }
         let before = &self.text[..pos + 1];
         let after = &self.text[pos..];
         let open = before.rfind(quote)?;

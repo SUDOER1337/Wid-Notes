@@ -1,6 +1,6 @@
 # Project Architecture
 
-> **Note:** This document describes the long-term vision for RustNote. Sections marked with **status: implemented** reflect current v0.1 capabilities. Unmarked sections are aspirational and describe planned architecture for future versions.
+> **Note:** This document describes the long-term vision for Nortex. Sections marked with **status: implemented** reflect current v0.1 capabilities. Unmarked sections are aspirational and describe planned architecture for future versions.
 
 ## Project Vision
 
@@ -172,6 +172,26 @@ Responsible for:
 - page/journal CRUD
 
 No UI code.
+
+---
+
+## crate::session **— implemented**
+
+Responsible for:
+
+- remembering the last-used workspace path between sessions
+- platform config directory resolution (Linux: `~/.config/nortex`, Windows: `%APPDATA%/Nortex`)
+- saving/loading/clearing `session.toml` (serde + toml, no new dependencies)
+
+Location: `src/session.rs`
+
+On launch, `main.rs` calls `session::load_last_workspace()` and passes the result to `NortexApp::new()`. If the path exists and contains a valid `workspace.toml`, the app skips the Welcome screen and opens directly into the editor.
+
+On successful `open_workspace()` or `create_workspace()`, the path is persisted via `session::save_last_workspace()`.
+
+If the saved workspace was deleted or moved, the app falls back to the Welcome prompt with a status message.
+
+See also: `src/session.rs`, `src/main.rs`, `src/app.rs`
 
 ---
 
@@ -358,6 +378,7 @@ Agents operate on workspace context.
 Implemented:
 
 - workspace creation and opening
+- session memory (last workspace auto-restored on launch)
 - journal-first workflow (auto-create today's journal)
 - vim modal editing (Normal, Insert, Visual, CommandLine)
 - vim motions (h/j/k/l, w/b/e, W/B/E, 0/$/^, gg/G, {/}, %, f/F/t/T, ;/,)

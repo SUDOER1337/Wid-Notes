@@ -1,9 +1,20 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
     pub editor: EditorSettings,
     pub window: WindowSettings,
+    pub theme: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            editor: EditorSettings::default(),
+            window: WindowSettings::default(),
+            theme: "nortex-dark".to_string(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

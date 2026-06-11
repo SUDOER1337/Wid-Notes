@@ -1,15 +1,15 @@
-# RustNote Demo
+# Nortex Demo
 
 A full-featured **Markdown** note to showcase _all_ the ~~hidden~~ formatting ~~gems~~ options.
 
 ---
 
-## Text Formatting
+## Text Formatting (Is not rendered correctly yet)
 
-- **Bold** – `**Bold**`
-- _Italic_ – `*Italic*`
-- **_Bold + Italic_** – `***Bold + Italic***`
-- ~~Strikethrough~~ – `~~Strikethrough~~`
+- **Bold** – `**Bold**` (Is not actually bold in preview)
+- _Italic_ – `*Italic*` (Is not actually italic in the preview)
+- **_Bold + Italic_** – `***Bold + Italic***` (same as above)
+- ~~Strikethrough~~ – `~~Strikethrough~~` (Not Strikethrough)
 - `Inline code` – backtick-wrapped
 
 ---
@@ -50,7 +50,7 @@ A full-featured **Markdown** note to showcase _all_ the ~~hidden~~ formatting ~~
    1. Third point A
    2. Third point B
 
-### Task List
+### Task List (Need indicator in preview)
 
 - [x] Implement vim bindings
 - [x] Add Markdown preview
@@ -112,15 +112,15 @@ print(quicksort([3, 6, 8, 10, 1, 2, 1]))
 
 ```
 $ cargo run --release
-   Compiling rustnote v0.1.0
+   Compiling nortex v0.1.0
     Finished release profile [optimized] target(s) in 12.34s
-     Running `target/release/rustnote.exe`
+     Running `target/release/nortex.exe`
 ```
 
 ---
 
-## Tables
-
+## Tables (Not Implemented yet)
+  
 | Key   | Action           | Mode     |
 | ----- | ---------------- | -------- |
 | `h`   | Move left        | Normal   |
@@ -133,10 +133,12 @@ $ cargo run --release
 
 ---
 
-## Links & Images
+## Images
 
+- **Image of Rust Logo** ![Rust Logo](assets/rust-logo-512x512.png)
+
+## Links (Can't be clicked on)
 - **Link:** [egui on crates.io](https://crates.io/crates/egui)
-- **Image:** ![Placeholder](https://via.placeholder.com/150)
 
 ---
 
@@ -158,7 +160,7 @@ Use a backslash to escape: \*not italic\*, \_not emphasized\_, \[not a link\].
 
 ---
 
-## Hard Line Breaks
+## Hard Line Breaks (Yet to be implemented)
 
 Two spaces at the end of a line  
 create a line break.

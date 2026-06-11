@@ -1,6 +1,8 @@
 use crate::editor::Buffer;
 use crate::preview::render_markdown;
+use crate::session;
 use crate::settings::Settings;
+use crate::theme::Theme;
 
 use crate::vim::{CommandAction, Mode, PageState, VimState};
 use crate::widget::editor_ui;
@@ -9,13 +11,14 @@ use eframe::egui;
 use eframe::egui::panel::Panel;
 use eframe::egui::Color32;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 enum AppScreen {
     Welcome,
     WorkspaceReady,
 }
 
-pub struct RustNoteApp {
+pub struct NortexApp {
     screen: AppScreen,
     workspace: Option<Workspace>,
     buffer: Buffer,
@@ -24,6 +27,7 @@ pub struct RustNoteApp {
     show_preview: bool,
     new_page_name: String,
     status_message: String,
+    theme: Theme,
     show_prompt: bool,
     prompt_path: String,
     prompt_name: String,
@@ -31,9 +35,13 @@ pub struct RustNoteApp {
     page_states: HashMap<String, PageState>,
 }
 
-impl RustNoteApp {
-    pub fn new() -> Self {
-        Self {
+impl NortexApp {
+    /** Create a new app instance, optionally auto-opening a last-used workspace.
+     *  @param last_workspace - Path to a previously saved workspace, if any
+     */
+    pub fn new(last_workspace: Option<PathBuf>) -> Self // Create app, restore session
+    {
+        let mut app = Self {
             screen: AppScreen::Welcome,
             workspace: None,
             buffer: Buffer::new(),
@@ -42,17 +50,32 @@ impl RustNoteApp {
             show_preview: false,
             new_page_name: String::new(),
             status_message: String::new(),
+            theme: Theme::build(None, &Settings::default().theme),
             show_prompt: true,
             prompt_path: String::new(),
             prompt_name: String::from("my-workspace"),
             current_page: None,
             page_states: HashMap::new(),
+        };
+
+        // Auto-open last workspace if it still exists
+        if let Some(ref path) = last_workspace {
+            if path.join("workspace.toml").exists() {
+                app.open_workspace(path);
+            } else {
+                app.status_message =
+                    "Previous workspace not found; create or open a new one.".to_string();
+            }
         }
+
+        app
     }
 
     fn open_workspace(&mut self, path: &std::path::Path) {
         if let Some(ws) = Workspace::open(path) {
+            session::save_last_workspace(path);
             self.settings = ws.load_settings();
+            self.theme = Theme::build(Some(path), &self.settings.theme);
             self.workspace = Some(ws);
             self.open_today_journal();
             self.screen = AppScreen::WorkspaceReady;
@@ -66,8 +89,10 @@ impl RustNoteApp {
     fn create_workspace(&mut self, path: &std::path::Path, name: &str) {
         match Workspace::create(path, name) {
             Ok(ws) => {
+                session::save_last_workspace(path);
                 ws.save_settings(&self.settings).ok();
                 self.settings = ws.load_settings();
+                self.theme = Theme::build(Some(path), &self.settings.theme);
                 self.workspace = Some(ws);
                 self.open_today_journal();
                 self.screen = AppScreen::WorkspaceReady;
@@ -181,9 +206,18 @@ impl RustNoteApp {
             }
         }
     }
+
+    /// Rebuild the theme from the current settings and persist.
+    fn apply_theme(&mut self) {
+        let root = self.workspace.as_ref().map(|ws| ws.root.as_path());
+        self.theme = Theme::build(root, &self.settings.theme);
+        if let Some(ref ws) = self.workspace {
+            let _ = ws.save_settings(&self.settings);
+        }
+    }
 }
 
-impl eframe::App for RustNoteApp {
+impl eframe::App for NortexApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Handle Ctrl+S
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::S)) {
@@ -205,11 +239,11 @@ impl eframe::App for RustNoteApp {
 
 // ── Welcome / workspace prompt ──
 
-impl RustNoteApp {
+impl NortexApp {
     fn render_welcome(&mut self, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
             ui.add_space(80.0);
-            ui.heading("RustNote");
+            ui.heading("Nortex");
             ui.label("A local-first knowledge workspace");
             ui.add_space(20.0);
 
@@ -260,7 +294,7 @@ impl RustNoteApp {
 
 // ── Main workspace UI ──
 
-impl RustNoteApp {
+impl NortexApp {
     fn render_workspace(&mut self, ui: &mut egui::Ui) {
         // Process deferred actions
         let cmd = std::mem::replace(&mut self.vim.command_action, CommandAction::None);
@@ -328,6 +362,26 @@ impl RustNoteApp {
                 });
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.show_preview, "Markdown Preview");
+                    ui.separator();
+                    ui.menu_button("Theme", |ui| {
+                        let current = self.settings.theme.clone();
+                        if ui
+                            .selectable_label(current == "nortex-dark", "Nortex Dark")
+                            .clicked()
+                        {
+                            self.settings.theme = "nortex-dark".to_string();
+                            self.apply_theme();
+                            ui.close();
+                        }
+                        if ui
+                            .selectable_label(current == "gruvbox", "Gruvbox Dark")
+                            .clicked()
+                        {
+                            self.settings.theme = "gruvbox".to_string();
+                            self.apply_theme();
+                            ui.close();
+                        }
+                    });
                 });
                 if ui.button("Today's Journal").clicked() {
                     self.open_today_journal();
@@ -439,7 +493,7 @@ impl RustNoteApp {
                     Mode::Normal => "NORMAL",
                     Mode::Insert => "INSERT",
                     Mode::Visual(_) => "VISUAL",
-                    Mode::CommandLine => "CMD",
+                    Mode::CommandLine => "COMMAND",
                 };
                 let mode_color = match self.vim.mode {
                     Mode::Normal => Color32::YELLOW,
@@ -497,12 +551,18 @@ impl RustNoteApp {
                 egui::ScrollArea::vertical()
                     .id_salt("editor_scroll")
                     .show(ui, |ui| {
-                        editor_ui(ui, &mut self.vim, &mut self.buffer, &self.settings);
+                        editor_ui(
+                            ui,
+                            &mut self.vim,
+                            &mut self.buffer,
+                            &self.settings,
+                            &self.theme,
+                        );
                     });
             } else {
                 ui.vertical_centered(|ui| {
                     ui.add_space(100.0);
-                    ui.heading("RustNote");
+                    ui.heading("Nortex");
                     ui.label("A local-first knowledge workspace");
                     ui.add_space(10.0);
                     if ui.button("Create a new page").clicked() {

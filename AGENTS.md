@@ -1,11 +1,11 @@
-# RustNote — opencode agent notes
+# Nortex — opencode agent notes
 
 Main project language is English
 
 ## Project structure
 
 ```
-RustNote/
+Nortex/
 ├── Cargo.toml
 ├── AGENTS.md
 ├── ARCHITECTURE.md
@@ -33,6 +33,17 @@ cargo run               # debug
 cargo run --release     # release
 cargo check             # check compilation only (faster)
 ```
+
+### Cross-platform setup
+
+Project-level configs are platform-agnostic. On **Windows only**, set `LIBRARY_PATH` in user-level Cargo config (`%USERPROFILE%\.cargo\config.toml`):
+
+```toml
+[env]
+LIBRARY_PATH = "D:\\Tools\\mingw64\\lib"
+```
+
+Or add `$env:LIBRARY_PATH = "D:\Tools\mingw64\lib"` to your PowerShell `$PROFILE`.
 
 ## Architecture
 
