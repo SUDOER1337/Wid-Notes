@@ -132,4 +132,4 @@ Nortex will NOT become:
 
 ## License
 
-MIT
+[MIT](LICENSE)
