@@ -1,5 +1,8 @@
 # Nortex Roadmap
 
+
+Note: Rename again (Nortex --> "Cromicon") probably final product name
+
 > **Last updated:** 2026-06-10
 > **Status:** Planning phase for v0.4
 
