@@ -3,13 +3,13 @@ mod key;
 pub use key::KeyPress;
 
 use crate::editor::{Buffer, SelectionMode, Snapshot};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ops::Range;
 
 /// State to preserve when switching pages (undo stacks, registers, dirty tracking)
 pub struct PageState {
-    pub undo_stack: Vec<Snapshot>,
-    pub redo_stack: Vec<Snapshot>,
+    pub undo_stack: VecDeque<Snapshot>,
+    pub redo_stack: VecDeque<Snapshot>,
     pub registers: Registers,
     pub saved_snapshot: Option<Snapshot>,
 }
@@ -116,28 +116,12 @@ pub enum CommandAction {
 #[derive(Clone, Debug)]
 enum ChangeRecord {
     Insert(InsertChange),
-    Delete {
-        range: std::ops::Range<usize>,
-        text: String,
-    },
-    Replace {
-        pos: usize,
-        new: char,
-    },
-    Join {
-        pos: usize,
-    },
-    ToggleCase {
-        pos: usize,
-    },
-    Indent {
-        line: usize,
-        count: usize,
-    },
-    Outdent {
-        line: usize,
-        count: usize,
-    },
+    Delete { text: String },
+    Replace { pos: usize, new: char },
+    Join { pos: usize },
+    ToggleCase { pos: usize },
+    Indent { line: usize, count: usize },
+    Outdent { line: usize, count: usize },
     ToggleCaseRange(std::ops::Range<usize>),
     LowercaseRange(std::ops::Range<usize>),
     UppercaseRange(std::ops::Range<usize>),
@@ -145,6 +129,8 @@ enum ChangeRecord {
 }
 
 const MAX_UNDO: usize = 200;
+/// Number of lines to scroll with Ctrl+F / Ctrl+B.
+const SCROLL_LINES: usize = 20;
 
 pub struct VimState {
     pub mode: Mode,
@@ -154,8 +140,8 @@ pub struct VimState {
     op_register: Option<char>,
     pending: Pending,
     last_find: Option<FindState>,
-    undo_stack: Vec<Snapshot>,
-    redo_stack: Vec<Snapshot>,
+    undo_stack: VecDeque<Snapshot>,
+    redo_stack: VecDeque<Snapshot>,
     registers: Registers,
     last_change: Option<ChangeRecord>,
     pub command_line: String,
@@ -178,8 +164,8 @@ impl VimState {
             op_register: None,
             pending: Pending::None,
             last_find: None,
-            undo_stack: Vec::with_capacity(MAX_UNDO),
-            redo_stack: Vec::new(),
+            undo_stack: VecDeque::with_capacity(MAX_UNDO),
+            redo_stack: VecDeque::new(),
             registers: Registers::new(),
             last_change: None,
             command_line: String::new(),
@@ -914,18 +900,15 @@ impl VimState {
                 self.pending = Pending::AwaitingDouble('<');
             }
             KeyPress::Ctrl('f') => {
-                let _ = buffer.line_count();
-                let scroll = 20usize;
                 let (cur_line, _) = buffer.line_col(buffer.cursor);
-                let target = cur_line + scroll;
-                buffer.set_cursor(buffer.line_start(target.min(buffer.line_count() - 1)));
+                let target = (cur_line + SCROLL_LINES).min(buffer.line_count().saturating_sub(1));
+                buffer.set_cursor(buffer.line_start(target));
                 self.count = None;
                 self.count_str.clear();
             }
             KeyPress::Ctrl('b') => {
-                let scroll = 20usize;
                 let (cur_line, _) = buffer.line_col(buffer.cursor);
-                let target = cur_line.saturating_sub(scroll);
+                let target = cur_line.saturating_sub(SCROLL_LINES);
                 buffer.set_cursor(buffer.line_start(target));
                 self.count = None;
                 self.count_str.clear();
@@ -956,7 +939,6 @@ impl VimState {
     fn handle_insert(&mut self, key: KeyPress, buffer: &mut Buffer) {
         match key {
             KeyPress::Escape | KeyPress::Ctrl('c') | KeyPress::Ctrl('[') => {
-                self.last_insert_text = self.last_insert_text.clone();
                 if !self.last_insert_text.is_empty() {
                     let change = InsertChange {
                         text: self.last_insert_text.clone(),
@@ -971,12 +953,16 @@ impl VimState {
                 buffer.set_cursor(pos);
             }
             KeyPress::Enter => {
+                // Capture indent level from the CURRENT line before inserting '\n'.
+                let indent = {
+                    let line = buffer.current_line();
+                    line.len() - line.trim_start().len()
+                };
                 buffer.insert(buffer.cursor, "\n");
-                let indent = buffer.current_line().len() - buffer.current_line().trim_start().len();
                 for _ in 0..indent {
                     buffer.insert(buffer.cursor, " ");
                 }
-                self.last_insert_len += 1;
+                self.last_insert_len += 1 + indent;
             }
             KeyPress::Backspace => {
                 if buffer.cursor > 0 {
@@ -1517,7 +1503,11 @@ impl VimState {
                 } else if rest == "wq!" {
                     self.command_action = CommandAction::SaveForceQuit;
                 } else if rest.starts_with("e ") || rest.starts_with("edit ") {
-                    let name = rest[2..].trim();
+                    let name = if rest.starts_with("edit ") {
+                        rest[5..].trim()
+                    } else {
+                        rest[2..].trim()
+                    };
                     if !name.is_empty() {
                         self.command_action = CommandAction::Open(name.to_string());
                     }
@@ -1536,8 +1526,7 @@ impl VimState {
                     )
                     .to_string();
                     self.save_undo(buffer);
-                    buffer.text = text;
-                    buffer.cursor = 0;
+                    buffer.set_text(text);
                 } else if rest == "noh" || rest == "nohlsearch" {
                     // Clear search highlights
                 }
@@ -1608,10 +1597,7 @@ impl VimState {
         log::info!("Delete lines {}-{}", line + 1, end_line + 1);
         self.registers.set(self.op_register, deleted.clone());
         self.op_register = None;
-        self.last_change = Some(ChangeRecord::Delete {
-            range: start..end,
-            text: deleted,
-        });
+        self.last_change = Some(ChangeRecord::Delete { text: deleted });
         self.count = None;
         self.count_str.clear();
     }
@@ -1834,10 +1820,7 @@ impl VimState {
             Operator::Delete => {
                 let deleted = buffer.delete(range.clone());
                 self.registers.set(self.op_register, deleted.clone());
-                self.last_change = Some(ChangeRecord::Delete {
-                    range,
-                    text: deleted,
-                });
+                self.last_change = Some(ChangeRecord::Delete { text: deleted });
             }
             Operator::Yank => {
                 let text = buffer.text[range].to_string();
@@ -1877,6 +1860,7 @@ impl VimState {
                     buffer.text.drain(safe_start..safe_end);
                     buffer.text.insert_str(safe_start, &s);
                     buffer.cursor = safe_start + s.len();
+                    buffer.rebuild_line_starts();
                 }
                 self.last_change = Some(ChangeRecord::LowercaseRange(range));
             }
@@ -1895,6 +1879,7 @@ impl VimState {
                     buffer.text.drain(safe_start..safe_end);
                     buffer.text.insert_str(safe_start, &s);
                     buffer.cursor = safe_start + s.len();
+                    buffer.rebuild_line_starts();
                 }
                 self.last_change = Some(ChangeRecord::UppercaseRange(range));
             }
@@ -1932,24 +1917,24 @@ impl VimState {
 
     fn save_undo(&mut self, buffer: &Buffer) {
         if self.undo_stack.len() >= MAX_UNDO {
-            self.undo_stack.remove(0);
+            self.undo_stack.pop_front(); // O(1) with VecDeque
         }
-        self.undo_stack.push(buffer.undo_snapshot());
+        self.undo_stack.push_back(buffer.undo_snapshot());
         self.redo_stack.clear();
         log::info!("Saved undo snapshot (depth {})", self.undo_stack.len());
     }
 
     fn undo(&mut self, buffer: &mut Buffer) {
-        if let Some(snap) = self.undo_stack.pop() {
-            self.redo_stack.push(buffer.undo_snapshot());
+        if let Some(snap) = self.undo_stack.pop_back() {
+            self.redo_stack.push_back(buffer.undo_snapshot());
             buffer.restore_snapshot(&snap);
             log::info!("Undo (depth {})", self.undo_stack.len());
         }
     }
 
     fn redo(&mut self, buffer: &mut Buffer) {
-        if let Some(snap) = self.redo_stack.pop() {
-            self.undo_stack.push(buffer.undo_snapshot());
+        if let Some(snap) = self.redo_stack.pop_back() {
+            self.undo_stack.push_back(buffer.undo_snapshot());
             buffer.restore_snapshot(&snap);
             log::info!("Redo (depth {})", self.redo_stack.len());
         }
@@ -1963,9 +1948,17 @@ impl VimState {
                 buffer.insert(ic.cursor_before, &ic.text);
                 buffer.set_cursor(ic.cursor_before + ic.text.len());
             }
-            ChangeRecord::Delete { range, text, .. } => {
-                buffer.insert(range.start, text);
-                buffer.set_cursor(range.start);
+            ChangeRecord::Delete { text, .. } => {
+                // Repeat a delete by removing the same byte-length of text
+                // forward from the current cursor position.
+                let end = (buffer.cursor + text.len()).min(buffer.text.len());
+                // Advance end to the next char boundary if needed.
+                let end = (end..=buffer.text.len())
+                    .find(|&i| buffer.text.is_char_boundary(i))
+                    .unwrap_or(buffer.text.len());
+                if end > buffer.cursor {
+                    buffer.delete(buffer.cursor..end);
+                }
             }
             ChangeRecord::Replace { pos, new } => {
                 buffer.replace_char(*pos, *new);
@@ -2020,6 +2013,7 @@ impl VimState {
                     buffer.text.drain(safe_start..safe_end);
                     buffer.text.insert_str(safe_start, &s);
                     buffer.cursor = safe_start + s.len();
+                    buffer.rebuild_line_starts();
                 }
             }
             ChangeRecord::UppercaseRange(range) => {
@@ -2037,6 +2031,7 @@ impl VimState {
                     buffer.text.drain(safe_start..safe_end);
                     buffer.text.insert_str(safe_start, &s);
                     buffer.cursor = safe_start + s.len();
+                    buffer.rebuild_line_starts();
                 }
             }
             ChangeRecord::Yank => {} // no-op on replay

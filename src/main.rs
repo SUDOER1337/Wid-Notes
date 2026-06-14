@@ -1,5 +1,6 @@
 mod app;
 mod editor;
+mod platform;
 mod preview;
 mod session;
 mod settings;
@@ -29,9 +30,9 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Nortex",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
-            Ok(Box::new(app::NortexApp::new(last_workspace)))
+            Ok(Box::new(app::NortexApp::new(last_workspace, ws)))
         }),
     )
 }

@@ -3,14 +3,12 @@
 //   save_last_workspace(path)  - Persist last workspace path
 //   load_last_workspace()      - Restore last workspace path
 
+use crate::platform;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 fn session_path() -> PathBuf {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".config/nortex/last_workspace")
+    platform::config_dir().join("last_workspace")
 }
 
 /// Persist the last opened workspace path to a file.

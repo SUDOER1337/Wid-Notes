@@ -39,66 +39,77 @@ pub struct Buffer {
     pub text: String,
     pub cursor: usize,
     pub selection: Option<Selection>,
+    line_starts: Vec<usize>,
 }
 
 impl Buffer {
+    /// Rebuild the line-start byte-offset cache. O(n) in text length; called
+    /// once per edit rather than once per query.
+    pub fn rebuild_line_starts(&mut self) {
+        self.line_starts.clear();
+        self.line_starts.push(0);
+        for (i, b) in self.text.bytes().enumerate() {
+            if b == b'\n' {
+                self.line_starts.push(i + 1);
+            }
+        }
+    }
+
+    /// Replace the entire buffer text, resetting cursor and selection.
+    /// Use this instead of `buffer.text = …` so line_starts stays valid.
+    pub fn set_text(&mut self, text: String) {
+        self.text = text;
+        self.cursor = 0;
+        self.selection = None;
+        self.rebuild_line_starts();
+    }
+
     pub fn new() -> Self {
-        Self {
+        let mut buf = Self {
             text: String::new(),
             cursor: 0,
             selection: None,
-        }
+            line_starts: Vec::new(),
+        };
+        buf.rebuild_line_starts();
+        buf
     }
 
     pub fn new_with_text(text: String) -> Self {
-        Self {
+        let mut buf = Self {
             text,
             cursor: 0,
             selection: None,
-        }
+            line_starts: Vec::new(),
+        };
+        buf.rebuild_line_starts();
+        buf
     }
 
     pub fn line_col(&self, pos: usize) -> (usize, usize) {
-        if self.text.is_empty() {
-            return (0, 0);
-        }
         let pos = pos.min(self.text.len());
-        if !self.text.is_char_boundary(pos) {
-            return self.line_col(pos.saturating_sub(1));
-        }
-        let before = &self.text[..pos];
-        let line = before.matches('\n').count();
-        let last_nl = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
-        let col = self.text[last_nl..pos].chars().count();
+        // Binary search: last line_start that is <= pos
+        let line = self
+            .line_starts
+            .partition_point(|&s| s <= pos)
+            .saturating_sub(1);
+        let line_start = self.line_starts[line];
+        let col = self.text[line_start..pos].chars().count();
         (line, col)
     }
 
     pub fn byte_from_line_col(&self, line: usize, col: usize) -> usize {
-        // Walk newlines to find the start of the target line (avoids Vec allocation)
-        let mut byte_pos = 0;
-        for _ in 0..line {
-            match self.text[byte_pos..].find('\n') {
-                Some(i) => byte_pos += i + 1,
-                None => return self.text.len(),
-            }
-        }
-        // Find the character at the given column within the line
-        let line_text = &self.text[byte_pos..];
-        let line_end = line_text.find('\n').unwrap_or(line_text.len());
-        let actual_col = line_text[..line_end]
+        let start = self.line_start(line);
+        let end = self.line_end(line);
+        self.text[start..end]
             .char_indices()
             .nth(col)
-            .map(|(i, _)| i)
-            .unwrap_or(line_end);
-        byte_pos + actual_col
+            .map(|(i, _)| start + i)
+            .unwrap_or(end)
     }
 
     pub fn line_count(&self) -> usize {
-        if self.text.is_empty() {
-            1
-        } else {
-            self.text.matches('\n').count() + 1
-        }
+        self.line_starts.len()
     }
 
     pub fn current_line(&self) -> &str {
@@ -107,34 +118,27 @@ impl Buffer {
     }
 
     pub fn line_text(&self, idx: usize) -> &str {
-        self.text.split('\n').nth(idx).unwrap_or("")
+        let start = self.line_start(idx);
+        let end = self.line_end(idx);
+        if start <= end && end <= self.text.len() {
+            &self.text[start..end]
+        } else {
+            ""
+        }
     }
 
     pub fn line_start(&self, idx: usize) -> usize {
-        let mut pos = 0;
-        for _ in 0..idx {
-            match self.text[pos..].find('\n') {
-                Some(i) => pos += i + 1,
-                None => return self.text.len(),
-            }
-        }
-        pos
+        self.line_starts
+            .get(idx)
+            .copied()
+            .unwrap_or(self.text.len())
     }
 
     pub fn line_end(&self, idx: usize) -> usize {
-        let start = self.line_start(idx);
-        match self.text[start..].find('\n') {
-            Some(i) => start + i,
+        match self.line_starts.get(idx + 1) {
+            Some(&next) => next.saturating_sub(1), // byte position of the '\n'
             None => self.text.len(),
         }
-    }
-
-    pub fn current_line_idx(&self) -> usize {
-        self.line_col(self.cursor).0
-    }
-
-    pub fn current_col(&self) -> usize {
-        self.line_col(self.cursor).1
     }
 
     pub fn move_left(&self, cursor: usize) -> usize {
@@ -194,7 +198,9 @@ impl Buffer {
     pub fn move_first_nonblank(&self, cursor: usize) -> usize {
         let (line, _) = self.line_col(cursor);
         let text = self.line_text(line);
-        let col = text.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+        // Use char position (not byte offset) — str::find returns bytes which
+        // would be wrong for multibyte leading whitespace.
+        let col = text.chars().position(|c| !c.is_whitespace()).unwrap_or(0);
         self.byte_from_line_col(line, col)
     }
 
@@ -707,6 +713,7 @@ impl Buffer {
     pub fn insert(&mut self, pos: usize, s: &str) {
         self.text.insert_str(pos, s);
         self.cursor = pos + s.len();
+        self.rebuild_line_starts();
     }
 
     pub fn delete(&mut self, range: Range<usize>) -> String {
@@ -716,6 +723,7 @@ impl Buffer {
         let deleted = self.text[range.start..range.end].to_string();
         self.text.drain(range.start..range.end);
         self.cursor = range.start.min(self.text.len());
+        self.rebuild_line_starts();
         deleted
     }
 
@@ -762,6 +770,11 @@ impl Buffer {
             self.text.drain(pos..pos + byte_len);
             self.text.insert_str(pos, &toggled);
             self.cursor = pos + toggled.len();
+            // Multi-char case mappings (e.g. ß→SS) change byte offsets of
+            // subsequent lines.
+            if toggled.len() != byte_len {
+                self.rebuild_line_starts();
+            }
         }
     }
 
@@ -785,6 +798,7 @@ impl Buffer {
         self.text.drain(end..end + ws_to_remove);
         self.text.insert_str(end, space);
         self.cursor = end + space.len();
+        self.rebuild_line_starts();
     }
 
     pub fn undo_snapshot(&self) -> Snapshot {
@@ -797,6 +811,7 @@ impl Buffer {
     pub fn restore_snapshot(&mut self, snap: &Snapshot) {
         self.text = snap.text.clone();
         self.cursor = snap.cursor;
+        self.rebuild_line_starts();
     }
 
     pub fn byte_before(&self, pos: usize) -> usize {

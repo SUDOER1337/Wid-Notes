@@ -101,8 +101,7 @@ fn paint_buffer(
     let visible_lines = (inner.height() / es.line_height) as usize;
 
     // Determine scroll line from cursor
-    let cursor_line = buffer.current_line_idx();
-    let cursor_col = buffer.current_col();
+    let (cursor_line, cursor_col) = buffer.line_col(buffer.cursor);
 
     // Simple scroll tracking (stored in cursor_line for now — we'll refine later)
     let scroll_line = sticky_scroll(cursor_line, total_lines, visible_lines);

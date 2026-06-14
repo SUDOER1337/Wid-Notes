@@ -1,3 +1,4 @@
+use crate::platform;
 use egui::Color32;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -490,11 +491,10 @@ impl Theme {
         toml::from_str(&content).ok()
     }
 
-    /// Merge another theme on top of this one.
-    /// Fields present in `other` override fields in `self`.
-    /// This is a shallow merge at the group level.
-    /// For partial file support, serde defaults handle missing fields.
-    pub fn merge(&mut self, other: Theme) {
+    /// Replace this theme entirely with `other`.
+    /// For partial overrides, serde `#[serde(default)]` on each field group
+    /// fills in defaults when individual sections are absent from the file.
+    pub fn replace(&mut self, other: Theme) {
         *self = other;
     }
 
@@ -504,13 +504,13 @@ impl Theme {
 
         // Global override
         if let Some(global) = Theme::load_global() {
-            theme.merge(global);
+            theme.replace(global);
         }
 
         // Workspace override
         if let Some(root) = workspace_root {
             if let Some(ws) = Theme::load_workspace(root) {
-                theme.merge(ws);
+                theme.replace(ws);
             }
         }
 
@@ -519,13 +519,5 @@ impl Theme {
 }
 
 fn global_theme_path() -> Option<std::path::PathBuf> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()?;
-    Some(
-        Path::new(&home)
-            .join(".config")
-            .join("nortex")
-            .join("theme.toml"),
-    )
+    Some(platform::config_dir().join("theme.toml"))
 }

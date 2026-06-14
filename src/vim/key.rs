@@ -44,7 +44,7 @@ impl Display for KeyPress {
 }
 
 impl KeyPress {
-    pub fn from_egui(ev: &egui::Event) -> Option<Self> {
+    pub fn from_egui_event(ev: &egui::Event) -> Option<Self> {
         match ev {
             egui::Event::Text(t) => {
                 let mut chars = t.chars();
@@ -104,10 +104,6 @@ impl KeyPress {
             }
             _ => None,
         }
-    }
-
-    pub fn from_egui_event(ev: &egui::Event) -> Option<Self> {
-        Self::from_egui(ev)
     }
 
     pub fn is_char(&self, c: char) -> bool {

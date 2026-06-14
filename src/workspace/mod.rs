@@ -115,15 +115,7 @@ impl Workspace {
     }
 
     pub fn write_page(&self, name: &str, content: &str) -> std::io::Result<()> {
-        // Pages take priority over journals when names collide
-        let is_journal =
-            !self.pages.iter().any(|p| p == name) && self.journals.iter().any(|j| j == name);
-        let path = if is_journal {
-            self.root.join("journals").join(format!("{}.md", name))
-        } else {
-            self.root.join("pages").join(format!("{}.md", name))
-        };
-        fs::write(path, content)
+        fs::write(self.resolve_doc_path(name), content)
     }
 
     pub fn create_page(&mut self, name: &str) -> std::io::Result<String> {
@@ -137,13 +129,7 @@ impl Workspace {
     }
 
     pub fn delete_page(&mut self, name: &str) -> std::io::Result<()> {
-        let is_journal =
-            !self.pages.iter().any(|p| p == name) && self.journals.iter().any(|j| j == name);
-        let path = if is_journal {
-            self.root.join("journals").join(format!("{}.md", name))
-        } else {
-            self.root.join("pages").join(format!("{}.md", name))
-        };
+        let path = self.resolve_doc_path(name);
         if path.exists() {
             fs::remove_file(path)?;
             self.refresh();
@@ -152,8 +138,14 @@ impl Workspace {
     }
 
     pub fn page_path(&self, name: &str) -> PathBuf {
+        self.resolve_doc_path(name)
+    }
+
+    /// Resolve the filesystem path for a named document.
+    /// Journals take lower priority than pages if names collide.
+    fn resolve_doc_path(&self, name: &str) -> PathBuf {
         let is_journal =
-            !self.pages.iter().any(|p| p == name) && self.journals.iter().any(|j| j == name);
+            self.journals.iter().any(|j| j == name) && !self.pages.iter().any(|p| p == name);
         if is_journal {
             self.root.join("journals").join(format!("{}.md", name))
         } else {

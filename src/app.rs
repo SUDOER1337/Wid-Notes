@@ -33,29 +33,35 @@ pub struct NortexApp {
     prompt_name: String,
     current_page: Option<String>,
     page_states: HashMap<String, PageState>,
+    /// Tracks insertion order for page_states eviction (LRU cap).
+    page_state_order: std::collections::VecDeque<String>,
 }
 
 impl NortexApp {
+    /// Maximum number of per-page undo/register states held in memory.
+    const MAX_PAGE_STATES: usize = 32;
+
     /** Create a new app instance, optionally auto-opening a last-used workspace.
      *  @param last_workspace - Path to a previously saved workspace, if any
      */
-    pub fn new(last_workspace: Option<PathBuf>) -> Self // Create app, restore session
-    {
+    pub fn new(last_workspace: Option<PathBuf>, settings: Settings) -> Self {
+        let theme = Theme::build(None, &settings.theme);
         let mut app = Self {
             screen: AppScreen::Welcome,
             workspace: None,
             buffer: Buffer::new(),
             vim: VimState::new(),
-            settings: Settings::default(),
+            settings,
             show_preview: false,
             new_page_name: String::new(),
             status_message: String::new(),
-            theme: Theme::build(None, &Settings::default().theme),
+            theme,
             show_prompt: true,
             prompt_path: String::new(),
             prompt_name: String::from("my-workspace"),
             current_page: None,
             page_states: HashMap::new(),
+            page_state_order: std::collections::VecDeque::new(),
         };
 
         // Auto-open last workspace if it still exists
@@ -126,6 +132,15 @@ impl NortexApp {
                 self.save_current_page();
             }
             let state = self.vim.take_page_state();
+            // Evict the oldest entry when the cap is reached.
+            if !self.page_states.contains_key(current.as_str()) {
+                if self.page_states.len() >= Self::MAX_PAGE_STATES {
+                    if let Some(oldest) = self.page_state_order.pop_front() {
+                        self.page_states.remove(&oldest);
+                    }
+                }
+                self.page_state_order.push_back(current.clone());
+            }
             self.page_states.insert(current.clone(), state);
         }
         let content = self
@@ -301,12 +316,15 @@ impl NortexApp {
         match cmd {
             CommandAction::Save => self.save_current_page(),
             CommandAction::Quit => {
-                // Save before quit if dirty (like :wq)
                 if self.vim.needs_save(&self.buffer) {
-                    self.save_current_page();
+                    // Warn like real vim — don't silently save.
+                    self.status_message =
+                        "No write since last change (use :wq to save, :q! to force quit)"
+                            .to_string();
+                } else {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    return;
                 }
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                return;
             }
             CommandAction::ForceQuit => {
                 // Force quit without saving
@@ -508,7 +526,7 @@ impl NortexApp {
                 };
 
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(20, 20, 30))
+                    .fill(self.theme.status.background)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.add_space(4.0);
