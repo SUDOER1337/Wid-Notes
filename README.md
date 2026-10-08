@@ -169,12 +169,6 @@ Then enable it in your host configuration:
 }
 ```
 
-Rebuild:
-
-```bash
-sudo nixos-rebuild switch --flake ~/nixos-config#hostname
-```
-
 ### Home Manager module
 
 ```nix
