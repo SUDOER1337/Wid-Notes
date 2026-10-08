@@ -6,7 +6,9 @@
 # Problems & Ideas
 
 ## Bugs
- - editor isn't functional now.
+ - editor isn't functional now. [SOLVED]
+ - "E" not functionaling correctly
+    - right now it stops at last letter rather than skipping to next word
 
 ## UI Problems
  - When the windows is small everything get clustered up
@@ -16,11 +18,7 @@
  - The Whiteboard tab itself acts as the control/tool panel for interacting with the canvas.
  - Whiteboard-specific tools and controls should live within the tab rather than taking up space on the canvas.
  
-## Vim bindings
- - "E" not functionaling correctly
-    - right now it stops at last letter rather than skipping to next word
-
-## UX Ideas
+ ## UX Ideas
  - holding shift and will reveal delete buttons on notes
 
 ## lack of Clipboard support and mouse support

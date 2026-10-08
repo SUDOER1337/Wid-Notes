@@ -130,6 +130,79 @@ Wid will NOT become:
 - SaaS product
 - Plugin marketplace
 
+## Installing Wid on NixOS
+
+Wid ships a flake with a package, a NixOS module and a Home Manager module. `x86_64-linux` only for now.
+
+### Quick try (no install)
+
+```bash
+nix run git+https://codeberg.org/Wid-Notes/Wid-Notes
+```
+
+### Install into your profile
+
+```bash
+nix profile add git+https://codeberg.org/Wid-Notes/Wid-Notes#wid
+wid
+```
+
+### NixOS module (declarative)
+
+Add the input to your system flake:
+
+```nix
+{
+  inputs.wid.url = "git+https://codeberg.org/Wid-Notes/Wid-Notes";
+}
+```
+
+Then enable it in your host configuration:
+
+```nix
+{ inputs, ... }:
+
+{
+  imports = [ inputs.wid.nixosModules.wid ];
+
+  programs.wid.enable = true;
+}
+```
+
+Rebuild:
+
+```bash
+sudo nixos-rebuild switch --flake ~/nixos-config#hostname
+```
+
+### Home Manager module
+
+```nix
+{ inputs, ... }:
+
+{
+  imports = [ inputs.wid.homeManagerModules.wid ];
+
+  programs.wid = {
+    enable = true;
+    stylix.enable = true;   # default: generate ~/.config/wid/theme.toml from your Stylix scheme
+  };
+}
+```
+
+Set `programs.wid.stylix.enable = false` if you don't use Stylix or prefer your own `theme.toml`.
+
+### Development environment
+
+```bash
+nix develop          # full shell: cargo, just, cargo-watch, rust-analyzer, mold
+just check           # cargo check via the flake (system cargo is a rustup proxy on NixOS)
+just ci              # fmt + clippy + check
+nix build            # release build through crane
+```
+
+> The flake's dev shell pins Mesa/Vulkan ICDs (`VK_DRIVER_FILES`) so the GUI starts against the shell's own libraries instead of mismatched system glibc.
+
 ## License
 
 [MIT](LICENSE)
