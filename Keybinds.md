@@ -1,0 +1,11 @@
+# Keybinds.md
+
+### Modal focusing ideas
+- when user press the panels keybind it opens the panels 
+- when pressing agian it focus on the panels allowing vim binding navigations on it
+- there will be a keybind to close default is CTRL + Q 
+
+# Heavily based on default Zed
+CTRL + SHIFT + E | Explorer
+CTRL + SHIFT + / | Agent
+CTRL + SHIFT + F | Search (should be called find)
