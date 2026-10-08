@@ -671,10 +671,10 @@ impl Theme {
         }
 
         // Workspace override
-        if let Some(root) = workspace_root {
-            if let Some(ws) = Theme::load_workspace(root) {
-                theme.replace(ws);
-            }
+        if let Some(root) = workspace_root
+            && let Some(ws) = Theme::load_workspace(root)
+        {
+            theme.replace(ws);
         }
 
         theme

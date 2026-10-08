@@ -50,8 +50,48 @@
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
+        # Libraries the final binary dlopen()s (wgpu → libvulkan, glow →
+        # libEGL/libGL, winit → libwayland/libxkbcommon/libX11). Nix's
+        # automatic RPATH fixup only tracks DT_NEEDED, so these would be
+        # missing from the `nix build` output and only work inside the dev
+        # shell (whose shellHook exports LD_LIBRARY_PATH).
+        runtimeLibs = with pkgs; [
+          libxcb
+          libX11
+          libXrandr
+          libXcursor
+          libXi
+          libxkbcommon
+          wayland
+          libGL
+          mesa
+          vulkan-loader
+        ];
+
+        # Pin the loader/first-party drivers from this flake's nixpkgs. The
+        # system drivers are built against a newer glibc than this pin, so
+        # letting the loader discover them yields "GLIBC_2.44 not found" →
+        # no adapter → eframe exits.
+        vulkanIcds = pkgs.lib.concatStringsSep ":" [
+          "${pkgs.mesa}/share/vulkan/icd.d/radeon_icd.x86_64.json"
+          "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json"
+        ];
+        eglVendorDir = "${pkgs.mesa}/share/glvnd/egl_vendor.d";
+
         wid = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
+
+          nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.makeWrapper ];
+
+          # Add the dlopen()'d libraries to the RPATH (instead of shipping an
+          # LD_LIBRARY_PATH) and wrap the binary to point the loaders at the
+          # pinned Mesa drivers, making the result self-contained.
+          postFixup = ''
+            patchelf --add-rpath "${pkgs.lib.makeLibraryPath runtimeLibs}" $out/bin/wid
+            wrapProgram $out/bin/wid \
+              --set VK_DRIVER_FILES "${vulkanIcds}" \
+              --set __EGL_VENDOR_LIBRARY_DIRS "${eglVendorDir}"
+          '';
         });
       in
       {
@@ -65,12 +105,9 @@
                   inherit (commonArgs) buildInputs nativeBuildInputs;
                   shellHook = ''
                     export PKG_CONFIG_PATH="${pkgs.lib.makeSearchPathOutput "dev" "lib/pkgconfig" (commonArgs.buildInputs ++ commonArgs.nativeBuildInputs)}:${pkgs.lib.makeSearchPathOutput "dev" "share/pkgconfig" (commonArgs.buildInputs ++ commonArgs.nativeBuildInputs)}''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-                    export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (commonArgs.buildInputs ++ commonArgs.nativeBuildInputs)}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-                    # Vulkan: force the shell's own mesa ICDs. The loader would
-                    # otherwise find the system ones via XDG_DATA_DIRS, and those
-                    # are built against a newer glibc than this nixpkgs pin →
-                    # "GLIBC_2.44 not found" → no adapter → eframe exits.
-                    export VK_DRIVER_FILES="${pkgs.mesa}/share/vulkan/icd.d/radeon_icd.x86_64.json:${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json"
+                    export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (commonArgs.buildInputs ++ commonArgs.nativeBuildInputs ++ runtimeLibs)}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+                    export VK_DRIVER_FILES="${vulkanIcds}"
+                    export __EGL_VENDOR_LIBRARY_DIRS="${eglVendorDir}"
                   '';
                 };
                 devShells.mypure =

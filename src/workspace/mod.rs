@@ -60,10 +60,10 @@ impl Workspace {
                     match entry {
                         Ok(e) => {
                             let path = e.path();
-                            if path.extension().is_some_and(|e| e == ext) {
-                                if let Some(stem) = path.file_stem() {
-                                    items.push(stem.to_string_lossy().to_string());
-                                }
+                            if path.extension().is_some_and(|e| e == ext)
+                                && let Some(stem) = path.file_stem()
+                            {
+                                items.push(stem.to_string_lossy().to_string());
                             }
                         }
                         Err(e) => log::warn!("Workspace scan error: {}", e),

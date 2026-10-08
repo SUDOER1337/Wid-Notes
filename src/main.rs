@@ -16,8 +16,8 @@ use ai::types::ChatMessage;
 use eframe::egui;
 use settings::Settings;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// Search upward from `start` for a directory containing `workspace.toml`.
 /// Returns the workspace root path if found.
@@ -157,6 +157,7 @@ fn main() -> eframe::Result<()> {
     let last_workspace = session::load_last_workspace();
 
     let options = eframe::NativeOptions {
+        renderer: eframe::Renderer::Glow,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([ws.window.width, ws.window.height])
             .with_min_inner_size([ws.window.min_width, ws.window.min_height])

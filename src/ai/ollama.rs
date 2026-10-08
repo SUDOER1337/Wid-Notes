@@ -1,8 +1,8 @@
 use crate::ai::types::{AsyncEvent, ChatMessage};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -105,7 +105,7 @@ impl OllamaClient {
                 return;
             }
             let chunk = match chunk_result {
-                Ok(c) => c,
+                Ok(c) => c.to_vec(),
                 Err(e) => {
                     let _ = tx.send(AsyncEvent::StreamError(format!("Read error: {e}")));
                     return;
@@ -113,36 +113,30 @@ impl OllamaClient {
             };
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 
-            loop {
-                match buffer.find('\n') {
-                    Some(nl_pos) => {
-                        let line = buffer[..nl_pos].trim().to_string();
-                        buffer = buffer[nl_pos + 1..].to_string();
+            while let Some(nl_pos) = buffer.find('\n') {
+                let line = buffer[..nl_pos].trim().to_string();
+                buffer = buffer[nl_pos + 1..].to_string();
 
-                        if line.is_empty() {
-                            continue;
+                if line.is_empty() {
+                    continue;
+                }
+
+                match serde_json::from_str::<ChatResponse>(&line) {
+                    Ok(resp) => {
+                        if resp.done {
+                            let _ = tx.send(AsyncEvent::StreamDone);
+                            return;
                         }
-
-                        match serde_json::from_str::<ChatResponse>(&line) {
-                            Ok(resp) => {
-                                if resp.done {
-                                    let _ = tx.send(AsyncEvent::StreamDone);
-                                    return;
-                                }
-                                if let Some(msg) = resp.message {
-                                    if !msg.content.is_empty() {
-                                        let _ = tx.send(AsyncEvent::StreamChunk(msg.content));
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                let _ =
-                                    tx.send(AsyncEvent::StreamError(format!("Parse error: {e}")));
-                                return;
-                            }
+                        if let Some(msg) = resp.message
+                            && !msg.content.is_empty()
+                        {
+                            let _ = tx.send(AsyncEvent::StreamChunk(msg.content));
                         }
                     }
-                    None => break,
+                    Err(e) => {
+                        let _ = tx.send(AsyncEvent::StreamError(format!("Parse error: {e}")));
+                        return;
+                    }
                 }
             }
         }

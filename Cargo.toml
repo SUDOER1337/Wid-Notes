@@ -1,12 +1,17 @@
 [package]
 name = "wid"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+authors = ["SUDOER1337"]
+description = "Wid - Vim-like note editor"
+repository = "https://codeberg.org/SUDOER1337/wid"
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 eframe = { version = "0.34", default-features = false, features = [
     "default_fonts",
-    "wgpu",
+    "glow",
     "x11",
     "wayland",
 ] }
@@ -15,24 +20,23 @@ pulldown-cmark = { version = "0.13", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
 toml = { version = "0.8", default-features = false, features = ["display", "parse"] }
-log = "0.4"
-env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
-pango = "0.22.6"
-# Skim-style fuzzy scoring for the command palette
-fuzzy-matcher = "0.3"
-
-reqwest = { version = "0.12", features = ["json", "stream"] }
-tokio = { version = "1", features = ["full"] }
-anyhow = "1"
+rfd = { version = "0.15", default-features = false, features = [
+    "file-handle-inner",
+    "xdg-portal",
+    "tokio",
+] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+    "stream",
+] }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread"] }
 futures-util = "0.3"
+anyhow = "1"
 serde_json = "1"
-
-# rfd on Linux needs a backend; on Windows it uses native dialogs
-[target.'cfg(not(target_os = "windows"))'.dependencies]
-rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-rfd = { version = "0.15", default-features = false }
+fuzzy-matcher = "0.3"
+env_logger = "0.11"
+log = "0.4"
 
 [dev-dependencies]
 # Headless egui UI test harness — drives WidApp::ui with injected input.

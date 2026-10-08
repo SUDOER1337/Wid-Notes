@@ -18,8 +18,8 @@
 use crate::theme::Theme;
 use crate::vim::CommandAction;
 use eframe::egui;
-use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 
 /// Where a palette entry came from — decides how input text is matched.
 #[derive(Clone, Copy, PartialEq, Debug)]

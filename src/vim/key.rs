@@ -60,10 +60,10 @@ impl KeyPress {
                 modifiers,
                 ..
             } => {
-                if modifiers.ctrl || modifiers.mac_cmd {
-                    if let Some(c) = key_char(*key) {
-                        return Some(KeyPress::Ctrl(c));
-                    }
+                if (modifiers.ctrl || modifiers.mac_cmd)
+                    && let Some(c) = key_char(*key)
+                {
+                    return Some(KeyPress::Ctrl(c));
                 }
                 match key {
                     egui::Key::Escape => Some(KeyPress::Escape),

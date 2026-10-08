@@ -350,11 +350,11 @@ impl VimState {
         }
 
         // Accumulate count
-        if let KeyPress::Char(c) = key {
-            if c.is_ascii_digit() && c != '0' || !self.count_str.is_empty() && c == '0' {
-                self.count_str.push(c);
-                return;
-            }
+        if let KeyPress::Char(c) = key
+            && (c.is_ascii_digit() && c != '0' || !self.count_str.is_empty() && c == '0')
+        {
+            self.count_str.push(c);
+            return;
         }
 
         match key {
@@ -1249,12 +1249,12 @@ impl VimState {
                     self.save_undo(buffer);
                     let mut pos = range.start;
                     while pos < range.end && pos < buffer.text.len() {
-                        if buffer.text.is_char_boundary(pos) {
-                            if let Some(c) = buffer.text[pos..].chars().next() {
-                                buffer.toggle_case_at(pos);
-                                pos += c.len_utf8();
-                                continue;
-                            }
+                        if buffer.text.is_char_boundary(pos)
+                            && let Some(c) = buffer.text[pos..].chars().next()
+                        {
+                            buffer.toggle_case_at(pos);
+                            pos += c.len_utf8();
+                            continue;
                         }
                         pos += 1;
                     }
@@ -1762,12 +1762,12 @@ impl VimState {
     fn apply_toggle_case_range(&mut self, range: &Range<usize>, buffer: &mut Buffer) {
         let mut pos = range.start;
         while pos < range.end && pos < buffer.text.len() {
-            if buffer.text.is_char_boundary(pos) {
-                if let Some(c) = buffer.text[pos..].chars().next() {
-                    buffer.toggle_case_at(pos);
-                    pos += c.len_utf8();
-                    continue;
-                }
+            if buffer.text.is_char_boundary(pos)
+                && let Some(c) = buffer.text[pos..].chars().next()
+            {
+                buffer.toggle_case_at(pos);
+                pos += c.len_utf8();
+                continue;
             }
             pos += 1;
         }

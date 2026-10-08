@@ -1,6 +1,6 @@
 use crate::ai;
 use crate::ai::ollama::OllamaClient;
-use crate::ai::search::{format_results_as_context, provider_from_config, SearchProvider};
+use crate::ai::search::{SearchProvider, format_results_as_context, provider_from_config};
 use crate::ai::types::{AsyncEvent, ChatMessage, Conversation};
 use crate::command_palette::{CommandPalette, PaletteOutcome};
 use crate::editor::Buffer;
@@ -21,8 +21,8 @@ use eframe::egui::{
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 
 enum AppScreen {
@@ -196,22 +196,19 @@ impl WidApp {
 
     fn after_workspace_ready(&mut self) {
         // Load saved conversations
-        if let Some(ref ws) = self.workspace {
-            match ai::persistence::load(&ws.root) {
-                Ok(convs) => {
-                    self.ai_conversations = convs;
-                    self.ai_loaded_from_disk = true;
-                    if !self.ai_conversations.is_empty() {
-                        let last_id = self
-                            .ai_conversations
-                            .iter()
-                            .map(|c| c.id)
-                            .max()
-                            .unwrap_or(0);
-                        self.ai_next_id = last_id + 1;
-                    }
-                }
-                Err(_) => {}
+        if let Some(ref ws) = self.workspace
+            && let Ok(convs) = ai::persistence::load(&ws.root)
+        {
+            self.ai_conversations = convs;
+            self.ai_loaded_from_disk = true;
+            if !self.ai_conversations.is_empty() {
+                let last_id = self
+                    .ai_conversations
+                    .iter()
+                    .map(|c| c.id)
+                    .max()
+                    .unwrap_or(0);
+                self.ai_next_id = last_id + 1;
             }
         }
         // Fetch models from Ollama
@@ -267,10 +264,10 @@ impl WidApp {
             let state = self.vim.take_page_state();
             // Evict the oldest entry when the cap is reached.
             if !self.page_states.contains_key(current.as_str()) {
-                if self.page_states.len() >= Self::MAX_PAGE_STATES {
-                    if let Some(oldest) = self.page_state_order.pop_front() {
-                        self.page_states.remove(&oldest);
-                    }
+                if self.page_states.len() >= Self::MAX_PAGE_STATES
+                    && let Some(oldest) = self.page_state_order.pop_front()
+                {
+                    self.page_states.remove(&oldest);
                 }
                 self.page_state_order.push_back(current.clone());
             }
@@ -299,16 +296,16 @@ impl WidApp {
     }
 
     fn save_current_page(&mut self) {
-        if let Some(ref ws) = self.workspace {
-            if let Some(ref name) = self.current_page {
-                match ws.write_page(name, &self.buffer.text) {
-                    Ok(_) => {
-                        self.vim.mark_saved(&self.buffer);
-                        self.status_message = format!("Saved: {}.md", name);
-                    }
-                    Err(e) => {
-                        self.status_message = format!("Error saving: {}", e);
-                    }
+        if let Some(ref ws) = self.workspace
+            && let Some(ref name) = self.current_page
+        {
+            match ws.write_page(name, &self.buffer.text) {
+                Ok(_) => {
+                    self.vim.mark_saved(&self.buffer);
+                    self.status_message = format!("Saved: {}.md", name);
+                }
+                Err(e) => {
+                    self.status_message = format!("Error saving: {}", e);
                 }
             }
         }
@@ -335,21 +332,21 @@ impl WidApp {
     }
 
     fn delete_current_page(&mut self) {
-        if let Some(ref mut ws) = self.workspace {
-            if let Some(ref name) = self.current_page.clone() {
-                // Remove page state so it doesn't linger
-                self.page_states.remove(name);
-                match ws.delete_page(name) {
-                    Ok(_) => {
-                        self.current_page = None;
-                        self.buffer = Buffer::new();
-                        self.vim = VimState::new();
-                        self.open_today_journal();
-                        self.status_message = format!("Deleted: {}.md", name);
-                    }
-                    Err(e) => {
-                        self.status_message = format!("Error deleting: {}", e);
-                    }
+        if let Some(ref mut ws) = self.workspace
+            && let Some(ref name) = self.current_page.clone()
+        {
+            // Remove page state so it doesn't linger
+            self.page_states.remove(name);
+            match ws.delete_page(name) {
+                Ok(_) => {
+                    self.current_page = None;
+                    self.buffer = Buffer::new();
+                    self.vim = VimState::new();
+                    self.open_today_journal();
+                    self.status_message = format!("Deleted: {}.md", name);
+                }
+                Err(e) => {
+                    self.status_message = format!("Error deleting: {}", e);
                 }
             }
         }
@@ -543,13 +540,12 @@ impl WidApp {
                         let ws_name = self.prompt_name.clone();
                         self.create_workspace(&path.join(&ws_name), &ws_name);
                     }
-                    if ui.button("Open Existing").clicked() {
-                        if let Some(dir) = rfd::FileDialog::new()
+                    if ui.button("Open Existing").clicked()
+                        && let Some(dir) = rfd::FileDialog::new()
                             .set_title("Select workspace directory")
                             .pick_folder()
-                        {
-                            self.open_workspace(&dir);
-                        }
+                    {
+                        self.open_workspace(&dir);
                     }
                 });
             }
@@ -1137,18 +1133,19 @@ impl WidApp {
             match event {
                 AsyncEvent::ModelsLoaded(models) => {
                     self.ai_models = models.clone();
-                    if !self.ai_loaded_from_disk && self.ai_conversations.is_empty() {
-                        if let Some(model) = models.first() {
-                            self.ai_conversations.push(Conversation {
-                                id: self.ai_next_id,
-                                title: model.clone(),
-                                messages: vec![],
-                                model: model.clone(),
-                                web_search: self.settings.ai.search_enabled_by_default,
-                                notes_context: self.settings.ai.notes_context_enabled,
-                            });
-                            self.ai_next_id += 1;
-                        }
+                    if !self.ai_loaded_from_disk
+                        && self.ai_conversations.is_empty()
+                        && let Some(model) = models.first()
+                    {
+                        self.ai_conversations.push(Conversation {
+                            id: self.ai_next_id,
+                            title: model.clone(),
+                            messages: vec![],
+                            model: model.clone(),
+                            web_search: self.settings.ai.search_enabled_by_default,
+                            notes_context: self.settings.ai.notes_context_enabled,
+                        });
+                        self.ai_next_id += 1;
                     }
                     self.ai_status = format!("Ready — {} models", self.ai_models.len());
                 }
@@ -1158,14 +1155,12 @@ impl WidApp {
                     }
                 }
                 AsyncEvent::StreamChunk(content) => {
-                    if let Some(cid) = self.ai_stream_conv_id {
-                        if let Some(conv) = self.ai_conversations.iter_mut().find(|c| c.id == cid) {
-                            if let Some(msg) = conv.messages.last_mut() {
-                                if msg.role == "assistant" {
-                                    msg.content.push_str(&content);
-                                }
-                            }
-                        }
+                    if let Some(cid) = self.ai_stream_conv_id
+                        && let Some(conv) = self.ai_conversations.iter_mut().find(|c| c.id == cid)
+                        && let Some(msg) = conv.messages.last_mut()
+                        && msg.role == "assistant"
+                    {
+                        msg.content.push_str(&content);
                     }
                     self.ai_auto_scroll = true;
                 }
@@ -1176,13 +1171,13 @@ impl WidApp {
                 }
                 AsyncEvent::StreamError(msg) => {
                     self.ai_is_streaming = false;
-                    if let Some(cid) = self.ai_stream_conv_id.take() {
-                        if let Some(conv) = self.ai_conversations.iter_mut().find(|c| c.id == cid) {
-                            conv.messages.push(ChatMessage {
-                                role: "system".to_string(),
-                                content: format!("Error: {msg}"),
-                            });
-                        }
+                    if let Some(cid) = self.ai_stream_conv_id.take()
+                        && let Some(conv) = self.ai_conversations.iter_mut().find(|c| c.id == cid)
+                    {
+                        conv.messages.push(ChatMessage {
+                            role: "system".to_string(),
+                            content: format!("Error: {msg}"),
+                        });
                     }
                     self.ai_save();
                 }
@@ -1265,21 +1260,16 @@ impl WidApp {
 
         // Inject notes context if enabled
         let notes_on = self.ai_conversations[self.ai_selected_idx].notes_context;
-        if notes_on {
-            if let Some(ref ws) = self.workspace {
-                let ctx = ai::context::build_context(&ws.root, self.settings.ai.max_notes);
-                if !ctx.is_empty() {
-                    history.insert(
-                        0,
-                        ChatMessage {
-                            role: "system".to_string(),
-                            content: format!(
-                                "Here are the user's recent notes for context.\n{}",
-                                ctx
-                            ),
-                        },
-                    );
-                }
+        if notes_on && let Some(ref ws) = self.workspace {
+            let ctx = ai::context::build_context(&ws.root, self.settings.ai.max_notes);
+            if !ctx.is_empty() {
+                history.insert(
+                    0,
+                    ChatMessage {
+                        role: "system".to_string(),
+                        content: format!("Here are the user's recent notes for context.\n{}", ctx),
+                    },
+                );
             }
         }
 
@@ -1323,10 +1313,10 @@ impl WidApp {
         }
 
         // Remove the error message (last system message)
-        if let Some(conv) = self.current_conv_mut() {
-            if conv.messages.last().map(|m| m.role.as_str()) == Some("system") {
-                conv.messages.pop();
-            }
+        if let Some(conv) = self.current_conv_mut()
+            && conv.messages.last().map(|m| m.role.as_str()) == Some("system")
+        {
+            conv.messages.pop();
         }
 
         // Restore input and re-send
@@ -1554,12 +1544,12 @@ impl WidApp {
                     self.ai_delete_conversation();
                 }
             }
-            if let Some(conv) = self.current_conv() {
-                if !conv.messages.is_empty() {
-                    ui.add_space(4.0);
-                    if ui.button(RichText::new("↓ Export").size(12.0)).clicked() {
-                        self.ai_export_conversation();
-                    }
+            if let Some(conv) = self.current_conv()
+                && !conv.messages.is_empty()
+            {
+                ui.add_space(4.0);
+                if ui.button(RichText::new("↓ Export").size(12.0)).clicked() {
+                    self.ai_export_conversation();
                 }
             }
             // Model badge
@@ -1726,16 +1716,16 @@ impl WidApp {
                 );
             }
 
-            if self.ai_is_streaming {
-                if let Some(last) = conv.messages.last() {
-                    if last.role == "assistant" && last.content.is_empty() {
-                        let dots = self.ai_loading_dots();
-                        ui.colored_label(
-                            Color32::GRAY,
-                            RichText::new(format!("Generating{dots}")).italics(),
-                        );
-                    }
-                }
+            if self.ai_is_streaming
+                && let Some(last) = conv.messages.last()
+                && last.role == "assistant"
+                && last.content.is_empty()
+            {
+                let dots = self.ai_loading_dots();
+                ui.colored_label(
+                    Color32::GRAY,
+                    RichText::new(format!("Generating{dots}")).italics(),
+                );
             }
         });
 
@@ -1845,7 +1835,7 @@ impl WidApp {
                         .selected_text(
                             providers
                                 .iter()
-                                .find(|(v, _)| *v == &sel)
+                                .find(|(v, _)| *v == sel)
                                 .map(|(_, l)| *l)
                                 .unwrap_or("Select"),
                         )
@@ -2018,8 +2008,8 @@ mod chat_input_repro {
     use super::*;
     use eframe::App as _;
     use egui::accesskit::Role;
-    use egui_kittest::kittest::Queryable;
     use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
 
     /** Build a WidApp sitting in WorkspaceReady with the Agent panel open
      *  and one empty conversation — the state a user reaches after opening
@@ -2073,7 +2063,7 @@ mod chat_input_repro {
      */
     #[test]
     fn typing_into_the_agent_chat_input_lands_in_ai_input() {
-        let mut h = harness(agent_panel_app());
+        let h = harness(agent_panel_app());
 
         // Symptom (d): no input box at all.
         let _input = h

@@ -22,7 +22,7 @@ pub fn build_context(workspace_root: &Path, max_notes: usize) -> String {
         collect_md_files(&journals_dir, &mut notes);
     }
 
-    notes.sort_by(|a, b| b.1.cmp(&a.1));
+    notes.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     let mut chunks: Vec<NoteChunk> = Vec::new();
     for (path, _) in notes.iter().take(max_notes) {
@@ -59,8 +59,7 @@ fn parse_file(path: &Path) -> Option<NoteChunk> {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("untitled")
-        .replace('_', " ")
-        .replace('-', " ");
+        .replace(['_', '-'], " ");
 
     let display_name = if let Some(parent) = path.parent() {
         let folder = parent.file_name().and_then(|s| s.to_str()).unwrap_or("");
@@ -183,11 +182,13 @@ fn strip_double_parens(text: &str) -> String {
     let mut i = 0;
     let bytes = text.as_bytes();
     while i < text.len() {
-        if bytes[i] == b'(' && i + 1 < text.len() && bytes[i + 1] == b'(' {
-            if let Some(end) = text[i + 2..].find("))") {
-                i += end + 4;
-                continue;
-            }
+        if bytes[i] == b'('
+            && i + 1 < text.len()
+            && bytes[i + 1] == b'('
+            && let Some(end) = text[i + 2..].find("))")
+        {
+            i += end + 4;
+            continue;
         }
         result.push(text[i..].chars().next().unwrap());
         i += text[i..].chars().next().unwrap().len_utf8();
@@ -218,12 +219,12 @@ fn strip_wiki_link(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut i = 0;
     while i < text.len() {
-        if text[i..].starts_with("[[") {
-            if let Some(end) = text[i + 2..].find("]]") {
-                result.push_str(&text[i + 2..i + 2 + end]);
-                i += end + 4;
-                continue;
-            }
+        if text[i..].starts_with("[[")
+            && let Some(end) = text[i + 2..].find("]]")
+        {
+            result.push_str(&text[i + 2..i + 2 + end]);
+            i += end + 4;
+            continue;
         }
         result.push(text[i..].chars().next().unwrap());
         i += text[i..].chars().next().unwrap().len_utf8();
@@ -243,8 +244,7 @@ fn strip_task_prefix(text: &str) -> String {
         "CANCELED ",
         "CANCELLED ",
     ] {
-        if trimmed.starts_with(prefix) {
-            let rest = &trimmed[prefix.len()..];
+        if let Some(rest) = trimmed.strip_prefix(prefix) {
             let indent = &text[..text.len() - text.trim_start().len()];
             return format!("{}{}", indent, rest);
         }

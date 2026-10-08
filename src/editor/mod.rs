@@ -235,11 +235,7 @@ impl Buffer {
                 .map(|i| i + end_of_word)
                 .unwrap_or(self.text.len())
         };
-        if i == cursor {
-            self.text.len()
-        } else {
-            i
-        }
+        if i == cursor { self.text.len() } else { i }
     }
 
     pub fn move_word_back(&self, cursor: usize) -> usize {
@@ -871,8 +867,8 @@ mod tests {
     fn line_col_second_line() {
         let b = Buffer::new_with_text("abc\ndef".into());
         assert_eq!(b.line_col(6), (1, 2)); // 'f'? Wait, let's check
-                                           // a(0) b(1) c(2) \n(3) d(4) e(5) f(6)
-                                           // line_col(6): partition_point([0,4]) = 2, line=1, col=text[4..6].chars() = "ef" = 2
+        // a(0) b(1) c(2) \n(3) d(4) e(5) f(6)
+        // line_col(6): partition_point([0,4]) = 2, line=1, col=text[4..6].chars() = "ef" = 2
         assert_eq!(b.line_col(4), (1, 0)); // 'd' = start of line 1
         assert_eq!(b.line_col(5), (1, 1)); // 'e'
     }

@@ -62,23 +62,23 @@ pub fn editor_ui(
             state.mode = Mode::Visual(SelectionMode::Charwise);
         }
     }
-    if response.dragged_by(egui::PointerButton::Primary) {
-        if let Some(pos) = ui.ctx().input(|i| i.pointer.latest_pos()) {
-            let at = pos_to_byte(rect, es, buffer, scroll, pos);
-            buffer.set_cursor(at);
-            if let Some(ref mut sel) = buffer.selection {
-                sel.active = at;
-            }
+    if response.dragged_by(egui::PointerButton::Primary)
+        && let Some(pos) = ui.ctx().input(|i| i.pointer.latest_pos())
+    {
+        let at = pos_to_byte(rect, es, buffer, scroll, pos);
+        buffer.set_cursor(at);
+        if let Some(ref mut sel) = buffer.selection {
+            sel.active = at;
         }
     }
-    if response.clicked_by(egui::PointerButton::Primary) {
-        if let Some(press) = response.interact_pointer_pos() {
-            let at = pos_to_byte(rect, es, buffer, scroll, press);
-            buffer.set_cursor(at);
-            buffer.clear_selection();
-            if matches!(state.mode, Mode::Visual(_)) {
-                state.mode = Mode::Normal;
-            }
+    if response.clicked_by(egui::PointerButton::Primary)
+        && let Some(press) = response.interact_pointer_pos()
+    {
+        let at = pos_to_byte(rect, es, buffer, scroll, press);
+        buffer.set_cursor(at);
+        buffer.clear_selection();
+        if matches!(state.mode, Mode::Visual(_)) {
+            state.mode = Mode::Normal;
         }
     }
 

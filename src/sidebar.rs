@@ -40,7 +40,7 @@
 //   selected_bg()                 - Theme-derived fill for the selected explorer row
 
 use crate::theme::Theme;
-use egui::{epaint::StrokeKind, Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, Vec2};
+use egui::{Color32, FontId, Pos2, Rect, Sense, Shape, Stroke, Vec2, epaint::StrokeKind};
 
 /// Width of the icon strip, matching VSCode's activity bar.
 pub const ACTIVITY_BAR_WIDTH: f32 = 48.0;

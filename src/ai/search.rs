@@ -105,7 +105,7 @@ impl BraveSearch {
             .as_array()
             .ok_or(SearchError::NoResults)?;
 
-        Ok(json_results_nonempty(results, "description")?)
+        json_results_nonempty(results, "description")
     }
 }
 
@@ -165,7 +165,7 @@ impl SearXNG {
             }
         };
 
-        Ok(json_results_nonempty(results, "content")?)
+        json_results_nonempty(results, "content")
     }
 }
 
@@ -209,11 +209,8 @@ fn parse_ddg_html(html: &str) -> Result<Vec<SearchResult>, SearchError> {
     let mut results = Vec::new();
     let mut pos = 0;
 
-    loop {
-        let body_start = match html[pos..].find("class=\"result__body\"") {
-            Some(p) => pos + p,
-            None => break,
-        };
+    while let Some(p) = html[pos..].find("class=\"result__body\"") {
+        let body_start = pos + p;
 
         let title_link = match html[body_start..].find("class=\"result__a\"") {
             Some(p) => body_start + p,
@@ -385,7 +382,7 @@ impl Tavily {
 
         let results = body["results"].as_array().ok_or(SearchError::NoResults)?;
 
-        Ok(json_results_nonempty(results, "content")?)
+        json_results_nonempty(results, "content")
     }
 }
 
@@ -451,14 +448,13 @@ pub fn provider_from_config(cfg: &super::types::AiConfig) -> SearchProvider {
 // ── Context formatter ────────────────────────────────────
 
 pub fn format_results_as_context(query: &str, results: &[SearchResult]) -> String {
-    let mut ctx = format!(
-        "# Web Search Results\n\n\
+    let mut ctx = "# Web Search Results\n\n\
          Below are live search results retrieved from the web. \
          Answer the user's question using **only** these results. \
          If the results don't contain enough information, say so. \
          Cite every claim with its source URL.\n\n\
          ## Results\n\n"
-    );
+        .to_string();
     for (i, r) in results.iter().enumerate() {
         ctx.push_str(&format!(
             "{}. [{}]({})\n   Snippet: {}\n\n",
