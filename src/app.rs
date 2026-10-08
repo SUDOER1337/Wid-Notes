@@ -2158,19 +2158,39 @@ mod editor_input_repro {
 
     /** Repro: click the editor, then navigate and edit with the keyboard.
      *  Each assertion isolates one failure mode of "the editor is unfunctional".
+     *  Click lands on line 1 (grid: text starts at x≈100, line height 22).
      */
     #[test]
     fn after_click_arrow_keys_navigate_and_text_edits() {
         let mut h = harness(editor_app());
         h.step();
-        click_editor(&mut h);
+        let pos = egui::pos2(110.0, 50.0);
+        h.hover_at(pos);
+        h.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+        assert_eq!(
+            h.state().buffer.line_col(h.state().buffer.cursor).0,
+            0,
+            "click did not place the cursor on line 1"
+        );
 
-        // Symptom (a): cannot navigate — ArrowDown must move cursor 0 → line 2.
+        // Symptom (a): cannot navigate — ArrowDown must move cursor to line 2.
         h.key_press(egui::Key::ArrowDown);
         h.step();
         assert_eq!(
-            h.state().buffer.cursor,
-            6,
+            h.state().buffer.line_col(h.state().buffer.cursor).0,
+            1,
             "arrow keys do not navigate the editor (cursor stuck at {})",
             h.state().buffer.cursor
         );
@@ -2382,6 +2402,114 @@ mod editor_input_repro {
             Mode::Insert,
             "editor stuck after command-line round-trip (mode = {:?})",
             h.state().vim.mode
+        );
+    }
+
+    /** Press at `from`, move to `to` (crossing the drag threshold), release.
+     *  @param h - Harness under test
+     *  @param from - Press position (selection anchor)
+     *  @param to - Drag target and release position (selection active end)
+     */
+    fn drag(h: &mut Harness<'static, WidApp>, from: egui::Pos2, to: egui::Pos2) {
+        h.hover_at(from);
+        h.event(egui::Event::PointerButton {
+            pos: from,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+        h.hover_at(to);
+        h.step();
+        h.event(egui::Event::PointerButton {
+            pos: to,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+    }
+
+    /** Mouse: dragging across text must select it and enter visual mode.
+     *  Drag from line 1 col ~0 to line 2 end (grid: text starts at x≈100,
+     *  line height 22 — positions sit inside the 3-line test buffer).
+     */
+    #[test]
+    fn drag_across_text_selects_and_enters_visual_mode() {
+        let mut h = harness(editor_app());
+        h.step();
+
+        drag(&mut h, egui::pos2(105.0, 50.0), egui::pos2(150.0, 72.0));
+
+        let app = h.state();
+        assert!(
+            matches!(app.vim.mode, Mode::Visual(_)),
+            "drag did not enter visual mode (mode = {:?})",
+            app.vim.mode
+        );
+        let sel = app
+            .buffer
+            .selection
+            .as_ref()
+            .expect("no selection after drag");
+        assert!(
+            sel.end() > sel.start(),
+            "selection is empty after drag (anchor = {}, active = {})",
+            sel.anchor,
+            sel.active
+        );
+    }
+
+    /** Mouse: a plain click (no drag) moves the cursor, clears the selection
+     *  and returns to normal mode.
+     */
+    #[test]
+    fn plain_click_moves_cursor_and_clears_selection() {
+        let mut h = harness(editor_app());
+        h.step();
+
+        // Setup: drag once so we are in visual mode with a selection.
+        drag(&mut h, egui::pos2(105.0, 50.0), egui::pos2(150.0, 72.0));
+        let cursor_before = h.state().buffer.cursor;
+
+        // Plain click on line 3 — no movement, so it stays a click.
+        let pos = egui::pos2(110.0, 94.0);
+        h.hover_at(pos);
+        h.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+        h.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+
+        let app = h.state();
+        assert_eq!(
+            app.vim.mode,
+            Mode::Normal,
+            "plain click did not leave visual mode (mode = {:?})",
+            app.vim.mode
+        );
+        assert!(
+            app.buffer.selection.is_none(),
+            "plain click did not clear the selection"
+        );
+        assert_ne!(
+            app.buffer.cursor, cursor_before,
+            "plain click did not move the cursor"
+        );
+        assert_eq!(
+            app.buffer.line_col(app.buffer.cursor).0,
+            2,
+            "plain click did not land on line 3 (cursor = {})",
+            app.buffer.cursor
         );
     }
 }

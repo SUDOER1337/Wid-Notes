@@ -20,12 +20,6 @@ pub fn editor_ui(
         ui.memory_mut(|mem| mem.request_focus(response.id));
     }
 
-    // Do not touch global input.events here; TextEdit and other widgets
-    // must be able to receive them. If the editor has focus, keyboard input
-    // for Vim should be handled via the focused widget path or via a
-    // dedicated input channel — but the current design drains everything.
-    // Keep behavior compatible by only acting when focused and draining only
-    // keyboard/Text events that map to vim, returning non-keyboard events.
     // Route keyboard events to vim unless a text field (chat, search, prompt,
     // settings) holds them. Deliberately NOT gated on this widget's focus:
     // egui surrenders focus on every Escape (EventFilter.escape defaults to
@@ -50,6 +44,42 @@ pub fn editor_ui(
             }
             input.events = keep;
         });
+    }
+
+    // Mouse: a plain click places the cursor; a drag selects text and enters
+    // visual (charwise) mode, matching vim's mouse behavior. `clicked` never
+    // fires on a drag, so the two paths are mutually exclusive.
+    let inner = rect.shrink2(Vec2::new(es.padding, es.padding));
+    let scroll = view_scroll(buffer, inner, es);
+
+    if response.drag_started() {
+        // Anchor at the press position — interact_pointer_pos tracks the
+        // current drag position, which would collapse the selection.
+        if let Some(press) = ui.ctx().input(|i| i.pointer.press_origin()) {
+            let at = pos_to_byte(rect, es, buffer, scroll, press);
+            buffer.set_cursor(at);
+            buffer.start_selection();
+            state.mode = Mode::Visual(SelectionMode::Charwise);
+        }
+    }
+    if response.dragged_by(egui::PointerButton::Primary) {
+        if let Some(pos) = ui.ctx().input(|i| i.pointer.latest_pos()) {
+            let at = pos_to_byte(rect, es, buffer, scroll, pos);
+            buffer.set_cursor(at);
+            if let Some(ref mut sel) = buffer.selection {
+                sel.active = at;
+            }
+        }
+    }
+    if response.clicked_by(egui::PointerButton::Primary) {
+        if let Some(press) = response.interact_pointer_pos() {
+            let at = pos_to_byte(rect, es, buffer, scroll, press);
+            buffer.set_cursor(at);
+            buffer.clear_selection();
+            if matches!(state.mode, Mode::Visual(_)) {
+                state.mode = Mode::Normal;
+            }
+        }
     }
 
     paint_buffer(ui, buffer, state, rect, es, ec);
@@ -96,15 +126,8 @@ fn paint_buffer(
 
     let total_lines = buffer.line_count();
     let visible_lines = (inner.height() / es.line_height) as usize;
-
-    // Determine scroll line from cursor
     let (cursor_line, cursor_col) = buffer.line_col(buffer.cursor);
-
-    // Simple scroll tracking (stored in cursor_line for now — we'll refine later)
-    let scroll_line = sticky_scroll(cursor_line, total_lines, visible_lines);
-
-    let max_scroll = total_lines.saturating_sub(visible_lines);
-    let scroll = scroll_line.min(max_scroll);
+    let scroll = view_scroll(buffer, inner, es);
 
     let line_num_width = total_lines.max(1).to_string().len().max(3);
 
@@ -208,4 +231,53 @@ fn sticky_scroll(cursor_line: usize, total_lines: usize, visible_lines: usize) -
     let ideal_top = cursor_line.saturating_sub(visible_lines / 2);
     let max_scroll = total_lines.saturating_sub(visible_lines);
     ideal_top.min(max_scroll)
+}
+
+/** First visible line for the current cursor, clamped to the buffer.
+ *  Shared by paint and mouse hit-testing so both use the same grid.
+ *  @param buffer - Buffer whose cursor drives the tracking
+ *  @param inner - Editor rect after padding shrink
+ *  @param es - Editor metrics (line height)
+ *  @returns The topmost line index to display
+ */
+fn view_scroll(buffer: &Buffer, inner: Rect, es: &crate::settings::EditorSettings) -> usize // Cursor-tracked scroll
+{
+    let total = buffer.line_count();
+    let visible = (inner.height() / es.line_height) as usize;
+    let (cursor_line, _) = buffer.line_col(buffer.cursor);
+    sticky_scroll(cursor_line, total, visible).min(total.saturating_sub(visible))
+}
+
+/** Map a pointer position to the nearest buffer byte offset.
+ *  Uses the same monospace grid the painter uses (padding + gutter + char
+ *  width); out-of-bounds coordinates clamp to the buffer.
+ *  @param rect - Full editor rect
+ *  @param es - Editor metrics (padding, gutter, char width, line height)
+ *  @param buffer - Buffer to hit-test against
+ *  @param scroll - First visible line (from `view_scroll`)
+ *  @param pos - Pointer position in screen space
+ *  @returns Byte offset of the hit character
+ */
+fn pos_to_byte(
+    rect: Rect,
+    es: &crate::settings::EditorSettings,
+    buffer: &Buffer,
+    scroll: usize,
+    pos: Pos2,
+) -> usize // Pointer → buffer offset
+{
+    let inner = rect.shrink2(Vec2::new(es.padding, es.padding));
+    let text_start_x = inner.left() + es.gutter_width;
+    let line = if pos.y <= inner.top() {
+        0
+    } else {
+        scroll + ((pos.y - inner.top()) / es.line_height) as usize
+    };
+    let line = line.min(buffer.line_count().saturating_sub(1));
+    let col = if pos.x <= text_start_x {
+        0
+    } else {
+        ((pos.x - text_start_x) / es.char_width) as usize
+    };
+    buffer.byte_from_line_col(line, col)
 }
