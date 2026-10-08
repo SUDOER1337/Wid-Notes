@@ -4,7 +4,13 @@ use serde::{Deserialize, Serialize};
 pub struct Settings {
     pub editor: EditorSettings,
     pub window: WindowSettings,
+    #[serde(default)]
     pub theme: String,
+    /// Invert the resolved theme for a quick light mode.
+    #[serde(default)]
+    pub invert: bool,
+    #[serde(default)]
+    pub ai: crate::ai::types::AiConfig,
 }
 
 impl Default for Settings {
@@ -12,7 +18,9 @@ impl Default for Settings {
         Self {
             editor: EditorSettings::default(),
             window: WindowSettings::default(),
-            theme: "nortex-dark".to_string(),
+            theme: "wid-dark".to_string(),
+            invert: false,
+            ai: crate::ai::types::AiConfig::default(),
         }
     }
 }
@@ -42,6 +50,15 @@ pub struct WindowSettings {
     pub height: f32,
     pub min_width: f32,
     pub min_height: f32,
+    /// Menu bar startup visibility: `"hidden"` (Alt to reveal) or `"visible"`.
+    #[serde(default = "default_menu_bar")]
+    pub menu_bar: String,
+}
+
+/// Startup state of the menu bar — hidden by default, revealed with bare Alt.
+fn default_menu_bar() -> String // Default menu bar visibility
+{
+    "hidden".to_string()
 }
 
 impl Default for WindowSettings {
@@ -51,6 +68,7 @@ impl Default for WindowSettings {
             height: 800.0,
             min_width: 600.0,
             min_height: 400.0,
+            menu_bar: default_menu_bar(),
         }
     }
 }

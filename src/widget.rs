@@ -14,48 +14,45 @@ pub fn editor_ui(
     let es = &settings.editor;
     let ec = &theme.editor;
     let available = ui.available_size();
-    let (rect, response) = ui.allocate_exact_size(available, egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(available, egui::Sense::click_and_drag());
 
     if response.clicked() {
         ui.memory_mut(|mem| mem.request_focus(response.id));
-        if let Some(pos) = response.interact_pointer_pos() {
-            cursor_from_click(pos, rect, buffer, es);
-        }
     }
 
-    // Always drain and process events, regardless of focus state.
-    // Widgets that consume events (TextEdit, consume_key) do so before
-    // editor_ui runs, so there are no conflicts.
-    ui.ctx().input_mut(|input| {
-        let events: Vec<Event> = input.events.drain(..).collect();
-        for ev in events {
-            if let Some(kp) = KeyPress::from_egui_event(&ev) {
-                log::trace!("Pressed: {}", kp);
-                state.handle_key(kp, buffer);
+    // Do not touch global input.events here; TextEdit and other widgets
+    // must be able to receive them. If the editor has focus, keyboard input
+    // for Vim should be handled via the focused widget path or via a
+    // dedicated input channel — but the current design drains everything.
+    // Keep behavior compatible by only acting when focused and draining only
+    // keyboard/Text events that map to vim, returning non-keyboard events.
+    // Route keyboard events to vim unless a text field (chat, search, prompt,
+    // settings) holds them. Deliberately NOT gated on this widget's focus:
+    // egui surrenders focus on every Escape (EventFilter.escape defaults to
+    // false) and our auto-generated id shifts when the central-panel layout
+    // changes — either would silently kill all keyboard input while the
+    // cursor keeps painting. Text fields consume their events during their
+    // own pass (all rendered before the editor), so nothing is double-handled.
+    if !ui.ctx().text_edit_focused() {
+        ui.ctx().input_mut(|input| {
+            let mut keep = Vec::new();
+            for ev in input.events.drain(..) {
+                match &ev {
+                    Event::Key { .. } | Event::Text(_) => {
+                        if let Some(kp) = KeyPress::from_egui_event(&ev) {
+                            state.handle_key(kp, buffer);
+                            continue;
+                        }
+                    }
+                    _ => {}
+                }
+                keep.push(ev);
             }
-        }
-    });
+            input.events = keep;
+        });
+    }
 
     paint_buffer(ui, buffer, state, rect, es, ec);
-}
-
-fn cursor_from_click(
-    pos: Pos2,
-    rect: Rect,
-    buffer: &mut Buffer,
-    es: &crate::settings::EditorSettings,
-) {
-    let inner = rect.shrink2(Vec2::new(es.padding, es.padding));
-    let text_start_x = inner.left() + es.gutter_width;
-
-    let click_line = ((pos.y - inner.top()) / es.line_height) as usize;
-    let click_col = ((pos.x - text_start_x) / es.char_width).max(0.0) as usize;
-
-    if click_line < buffer.line_count() {
-        let line = buffer.line_text(click_line);
-        let col = click_col.min(line.chars().count());
-        buffer.set_cursor(buffer.byte_from_line_col(click_line, col));
-    }
 }
 
 fn paint_buffer(

@@ -1,4 +1,4 @@
-# Welcome to Nortex
+# Welcome to Wid
 
 A local-first knowledge workspace. Markdown files are the source of truth. Vim is the primary interaction model. Everything works offline.
 
@@ -17,7 +17,7 @@ A local-first knowledge workspace. Markdown files are the source of truth. Vim i
 
 | Page | Description |
 |------|-------------|
-| **Welcome** | You are here — introduction to Nortex |
+| **Welcome** | You are here — introduction to Wid |
 | **Vim Reference** | Complete list of vim commands, motions, operators |
 | **Markdown Showcase** | Full markdown formatting demo with preview |
 | **Theme Reference** | How the theme system works |

@@ -111,6 +111,22 @@ pub enum CommandAction {
     ForceQuit,
     SaveForceQuit,
     Open(String),
+    ToggleMenuBar,
+    /// `:` pressed — open the command palette with an ex prefix.
+    OpenPalette,
+    TogglePreview,
+    ToggleSidebar,
+    CreatePage,
+    DeletePage,
+    OpenNote,
+    SearchTags,
+    /// Empty name means "cycle to the next built-in theme".
+    SwitchTheme(String),
+    OpenWorkspace,
+    TodayJournal,
+    SetZenMode(bool),
+    /// Run a raw ex command that has no dedicated variant (e.g. `:help`).
+    Ex(String),
 }
 
 #[derive(Clone, Debug)]
@@ -292,91 +308,19 @@ impl VimState {
                 return;
             }
             Pending::AwaitingFindChar => {
-                self.pending = Pending::None;
-                if let KeyPress::Char(c) = key {
-                    self.last_find = Some(FindState {
-                        ch: c,
-                        reverse: false,
-                        till: false,
-                    });
-                    let count = self.count.unwrap_or(1);
-                    let mut pos = buffer.cursor;
-                    for _ in 0..count {
-                        match buffer.find_next_char(pos, c) {
-                            Some(p) => pos = p,
-                            None => break,
-                        }
-                    }
-                    buffer.set_cursor(pos);
-                }
-                self.count = None;
-                self.count_str.clear();
+                self.apply_find(key, buffer, false, false);
                 return;
             }
             Pending::AwaitingTillChar => {
-                self.pending = Pending::None;
-                if let KeyPress::Char(c) = key {
-                    self.last_find = Some(FindState {
-                        ch: c,
-                        reverse: false,
-                        till: true,
-                    });
-                    let count = self.count.unwrap_or(1);
-                    let mut pos = buffer.cursor;
-                    for _ in 0..count {
-                        match buffer.find_till_next_char(pos, c) {
-                            Some(p) => pos = p,
-                            None => break,
-                        }
-                    }
-                    buffer.set_cursor(pos);
-                }
-                self.count = None;
-                self.count_str.clear();
+                self.apply_find(key, buffer, false, true);
                 return;
             }
             Pending::AwaitingFindBackChar => {
-                self.pending = Pending::None;
-                if let KeyPress::Char(c) = key {
-                    self.last_find = Some(FindState {
-                        ch: c,
-                        reverse: true,
-                        till: false,
-                    });
-                    let count = self.count.unwrap_or(1);
-                    let mut pos = buffer.cursor;
-                    for _ in 0..count {
-                        match buffer.find_prev_char(pos, c) {
-                            Some(p) => pos = p,
-                            None => break,
-                        }
-                    }
-                    buffer.set_cursor(pos);
-                }
-                self.count = None;
-                self.count_str.clear();
+                self.apply_find(key, buffer, true, false);
                 return;
             }
             Pending::AwaitingTillBackChar => {
-                self.pending = Pending::None;
-                if let KeyPress::Char(c) = key {
-                    self.last_find = Some(FindState {
-                        ch: c,
-                        reverse: true,
-                        till: true,
-                    });
-                    let count = self.count.unwrap_or(1);
-                    let mut pos = buffer.cursor;
-                    for _ in 0..count {
-                        match buffer.find_till_prev_char(pos, c) {
-                            Some(p) => pos = p,
-                            None => break,
-                        }
-                    }
-                    buffer.set_cursor(pos);
-                }
-                self.count = None;
-                self.count_str.clear();
+                self.apply_find(key, buffer, true, true);
                 return;
             }
             Pending::AwaitingReplaceChar => {
@@ -491,10 +435,9 @@ impl VimState {
                 log::info!("Mode → VISUAL LINE");
             }
             KeyPress::Char(':') => {
-                self.mode = Mode::CommandLine;
-                self.command_line.clear();
-                self.command_line.push(':');
-                log::info!("Mode → CMD");
+                // Phase 4: the palette replaces the bare command line for `:`.
+                self.command_action = CommandAction::OpenPalette;
+                log::info!("Palette → ex prefix");
             }
             KeyPress::Char('/') => {
                 self.mode = Mode::CommandLine;
@@ -1051,91 +994,19 @@ impl VimState {
                 return;
             }
             Pending::AwaitingFindChar => {
-                self.pending = Pending::None;
-                if let KeyPress::Char(c) = key {
-                    self.last_find = Some(FindState {
-                        ch: c,
-                        reverse: false,
-                        till: false,
-                    });
-                    let count = self.count.unwrap_or(1);
-                    let mut pos = buffer.cursor;
-                    for _ in 0..count {
-                        match buffer.find_next_char(pos, c) {
-                            Some(p) => pos = p,
-                            None => break,
-                        }
-                    }
-                    buffer.set_cursor(pos);
-                }
-                self.count = None;
-                self.count_str.clear();
+                self.apply_find(key, buffer, false, false);
                 return;
             }
             Pending::AwaitingTillChar => {
-                self.pending = Pending::None;
-                if let KeyPress::Char(c) = key {
-                    self.last_find = Some(FindState {
-                        ch: c,
-                        reverse: false,
-                        till: true,
-                    });
-                    let count = self.count.unwrap_or(1);
-                    let mut pos = buffer.cursor;
-                    for _ in 0..count {
-                        match buffer.find_till_next_char(pos, c) {
-                            Some(p) => pos = p,
-                            None => break,
-                        }
-                    }
-                    buffer.set_cursor(pos);
-                }
-                self.count = None;
-                self.count_str.clear();
+                self.apply_find(key, buffer, false, true);
                 return;
             }
             Pending::AwaitingFindBackChar => {
-                self.pending = Pending::None;
-                if let KeyPress::Char(c) = key {
-                    self.last_find = Some(FindState {
-                        ch: c,
-                        reverse: true,
-                        till: false,
-                    });
-                    let count = self.count.unwrap_or(1);
-                    let mut pos = buffer.cursor;
-                    for _ in 0..count {
-                        match buffer.find_prev_char(pos, c) {
-                            Some(p) => pos = p,
-                            None => break,
-                        }
-                    }
-                    buffer.set_cursor(pos);
-                }
-                self.count = None;
-                self.count_str.clear();
+                self.apply_find(key, buffer, true, false);
                 return;
             }
             Pending::AwaitingTillBackChar => {
-                self.pending = Pending::None;
-                if let KeyPress::Char(c) = key {
-                    self.last_find = Some(FindState {
-                        ch: c,
-                        reverse: true,
-                        till: true,
-                    });
-                    let count = self.count.unwrap_or(1);
-                    let mut pos = buffer.cursor;
-                    for _ in 0..count {
-                        match buffer.find_till_prev_char(pos, c) {
-                            Some(p) => pos = p,
-                            None => break,
-                        }
-                    }
-                    buffer.set_cursor(pos);
-                }
-                self.count = None;
-                self.count_str.clear();
+                self.apply_find(key, buffer, true, true);
                 return;
             }
             _ => {
@@ -1399,10 +1270,7 @@ impl VimState {
                     self.save_undo(buffer);
                     let start_line = buffer.line_col(range.start).0;
                     let end_line = buffer.line_col(range.end.saturating_sub(1)).0;
-                    for l in start_line..=end_line {
-                        let ls = buffer.line_start(l);
-                        buffer.insert(ls, "    ");
-                    }
+                    self.apply_indent(start_line, end_line, buffer);
                     log::info!("Visual indent lines {}-{}", start_line + 1, end_line + 1);
                     self.last_change = Some(ChangeRecord::Indent {
                         line: start_line,
@@ -1418,14 +1286,7 @@ impl VimState {
                     self.save_undo(buffer);
                     let start_line = buffer.line_col(range.start).0;
                     let end_line = buffer.line_col(range.end.saturating_sub(1)).0;
-                    for l in start_line..=end_line {
-                        let ls = buffer.line_start(l);
-                        if buffer.text[ls..].starts_with("    ") {
-                            buffer.delete(ls..ls + 4);
-                        } else if buffer.text[ls..].starts_with('\t') {
-                            buffer.delete(ls..ls + 1);
-                        }
-                    }
+                    self.apply_outdent(start_line, end_line, buffer);
                     log::info!("Visual outdent lines {}-{}", start_line + 1, end_line + 1);
                     self.last_change = Some(ChangeRecord::Outdent {
                         line: start_line,
@@ -1481,7 +1342,12 @@ impl VimState {
 
     // ── Command execution ──
 
-    fn execute_command(&mut self, cmd: &str, buffer: &mut Buffer) {
+    /** Execute an ex / search command line.
+     *  @param cmd - Command text, e.g. `":w"`, `"/pat"`, `"?pat"`
+     *  @param buffer - Buffer the command operates on (e.g. `:help` overwrites it)
+     */
+    pub fn execute_command(&mut self, cmd: &str, buffer: &mut Buffer) // Run an ex command
+    {
         let trimmed = cmd.trim();
         if trimmed.is_empty() {
             return;
@@ -1503,11 +1369,11 @@ impl VimState {
                 } else if rest == "wq!" {
                     self.command_action = CommandAction::SaveForceQuit;
                 } else if rest.starts_with("e ") || rest.starts_with("edit ") {
-                    let name = if rest.starts_with("edit ") {
-                        rest[5..].trim()
-                    } else {
-                        rest[2..].trim()
-                    };
+                    let name = rest
+                        .strip_prefix("edit ")
+                        .or_else(|| rest.strip_prefix("e "))
+                        .unwrap_or("")
+                        .trim();
                     if !name.is_empty() {
                         self.command_action = CommandAction::Open(name.to_string());
                     }
@@ -1520,6 +1386,7 @@ impl VimState {
                         ":e n  - open note\n",
                         "/pat  - search forward\n",
                         "?pat  - search backward\n",
+                        ":menubar - toggle menu bar\n",
                         "u     - undo\n",
                         "Ctrl+r - redo\n",
                         ".:     - repeat last change\n"
@@ -1529,6 +1396,8 @@ impl VimState {
                     buffer.set_text(text);
                 } else if rest == "noh" || rest == "nohlsearch" {
                     // Clear search highlights
+                } else if rest == "menubar" {
+                    self.command_action = CommandAction::ToggleMenuBar;
                 }
             }
             '/' | '?' => {
@@ -1569,6 +1438,31 @@ impl VimState {
     }
 
     // ── Internal helpers ──
+
+    fn apply_find(&mut self, key: KeyPress, buffer: &mut Buffer, reverse: bool, till: bool) {
+        self.pending = Pending::None;
+        if let KeyPress::Char(c) = key {
+            self.last_find = Some(FindState {
+                ch: c,
+                reverse,
+                till,
+            });
+            let count = self.count.unwrap_or(1);
+            let mut pos = buffer.cursor;
+            for _ in 0..count {
+                pos = match (reverse, till) {
+                    (false, false) => buffer.find_next_char(pos, c),
+                    (false, true) => buffer.find_till_next_char(pos, c),
+                    (true, false) => buffer.find_prev_char(pos, c),
+                    (true, true) => buffer.find_till_prev_char(pos, c),
+                }
+                .unwrap_or(pos);
+            }
+            buffer.set_cursor(pos);
+        }
+        self.count = None;
+        self.count_str.clear();
+    }
 
     fn enter_insert_mode(&mut self, buffer: &mut Buffer) {
         self.mode = Mode::Insert;
@@ -1832,64 +1726,21 @@ impl VimState {
                 self.enter_insert_mode(buffer);
             }
             Operator::ToggleCase => {
-                let mut pos = range.start;
-                while pos < range.end && pos < buffer.text.len() {
-                    if buffer.text.is_char_boundary(pos) {
-                        if let Some(c) = buffer.text[pos..].chars().next() {
-                            buffer.toggle_case_at(pos);
-                            pos += c.len_utf8();
-                            continue;
-                        }
-                    }
-                    pos += 1;
-                }
+                self.apply_toggle_case_range(&range, buffer);
                 self.last_change = Some(ChangeRecord::ToggleCaseRange(range));
             }
             Operator::Lowercase => {
-                let safe_start = (range.start..buffer.text.len())
-                    .find(|&i| buffer.text.is_char_boundary(i))
-                    .unwrap_or(range.start);
-                let safe_end = (range.end..=buffer.text.len())
-                    .find(|&i| i == buffer.text.len() || buffer.text.is_char_boundary(i))
-                    .unwrap_or(range.end);
-                if safe_start < safe_end {
-                    let s: String = buffer.text[safe_start..safe_end]
-                        .chars()
-                        .flat_map(|c| c.to_lowercase())
-                        .collect();
-                    buffer.text.drain(safe_start..safe_end);
-                    buffer.text.insert_str(safe_start, &s);
-                    buffer.cursor = safe_start + s.len();
-                    buffer.rebuild_line_starts();
-                }
+                self.apply_case_range(&range, false, buffer);
                 self.last_change = Some(ChangeRecord::LowercaseRange(range));
             }
             Operator::Uppercase => {
-                let safe_start = (range.start..buffer.text.len())
-                    .find(|&i| buffer.text.is_char_boundary(i))
-                    .unwrap_or(range.start);
-                let safe_end = (range.end..=buffer.text.len())
-                    .find(|&i| i == buffer.text.len() || buffer.text.is_char_boundary(i))
-                    .unwrap_or(range.end);
-                if safe_start < safe_end {
-                    let s: String = buffer.text[safe_start..safe_end]
-                        .chars()
-                        .flat_map(|c| c.to_uppercase())
-                        .collect();
-                    buffer.text.drain(safe_start..safe_end);
-                    buffer.text.insert_str(safe_start, &s);
-                    buffer.cursor = safe_start + s.len();
-                    buffer.rebuild_line_starts();
-                }
+                self.apply_case_range(&range, true, buffer);
                 self.last_change = Some(ChangeRecord::UppercaseRange(range));
             }
             Operator::Indent => {
                 let start_line = buffer.line_col(range.start).0;
                 let end_line = buffer.line_col(range.end.saturating_sub(1)).0;
-                for l in start_line..=end_line {
-                    let ls = buffer.line_start(l);
-                    buffer.insert(ls, "    ");
-                }
+                self.apply_indent(start_line, end_line, buffer);
                 self.last_change = Some(ChangeRecord::Indent {
                     line: start_line,
                     count: end_line - start_line + 1,
@@ -1898,14 +1749,7 @@ impl VimState {
             Operator::Outdent => {
                 let start_line = buffer.line_col(range.start).0;
                 let end_line = buffer.line_col(range.end.saturating_sub(1)).0;
-                for l in start_line..=end_line {
-                    let ls = buffer.line_start(l);
-                    if buffer.text[ls..].starts_with("    ") {
-                        buffer.delete(ls..ls + 4);
-                    } else if buffer.text[ls..].starts_with('\t') {
-                        buffer.delete(ls..ls + 1);
-                    }
-                }
+                self.apply_outdent(start_line, end_line, buffer);
                 self.last_change = Some(ChangeRecord::Outdent {
                     line: start_line,
                     count: end_line - start_line + 1,
@@ -1913,6 +1757,63 @@ impl VimState {
             }
         }
         self.op_register = None;
+    }
+
+    fn apply_toggle_case_range(&mut self, range: &Range<usize>, buffer: &mut Buffer) {
+        let mut pos = range.start;
+        while pos < range.end && pos < buffer.text.len() {
+            if buffer.text.is_char_boundary(pos) {
+                if let Some(c) = buffer.text[pos..].chars().next() {
+                    buffer.toggle_case_at(pos);
+                    pos += c.len_utf8();
+                    continue;
+                }
+            }
+            pos += 1;
+        }
+    }
+
+    fn apply_case_range(&mut self, range: &Range<usize>, uppercase: bool, buffer: &mut Buffer) {
+        let safe_start = (range.start..buffer.text.len())
+            .find(|&i| buffer.text.is_char_boundary(i))
+            .unwrap_or(range.start);
+        let safe_end = (range.end..=buffer.text.len())
+            .find(|&i| i == buffer.text.len() || buffer.text.is_char_boundary(i))
+            .unwrap_or(range.end);
+        if safe_start < safe_end {
+            let s: String = buffer.text[safe_start..safe_end]
+                .chars()
+                .flat_map(|c| -> Vec<char> {
+                    if uppercase {
+                        c.to_uppercase().collect()
+                    } else {
+                        c.to_lowercase().collect()
+                    }
+                })
+                .collect();
+            buffer.text.drain(safe_start..safe_end);
+            buffer.text.insert_str(safe_start, &s);
+            buffer.cursor = safe_start + s.len();
+            buffer.rebuild_line_starts();
+        }
+    }
+
+    fn apply_indent(&mut self, start_line: usize, end_line: usize, buffer: &mut Buffer) {
+        for l in start_line..=end_line {
+            let ls = buffer.line_start(l);
+            buffer.insert(ls, "    ");
+        }
+    }
+
+    fn apply_outdent(&mut self, start_line: usize, end_line: usize, buffer: &mut Buffer) {
+        for l in start_line..=end_line {
+            let ls = buffer.line_start(l);
+            if buffer.text[ls..].starts_with("    ") {
+                buffer.delete(ls..ls + 4);
+            } else if buffer.text[ls..].starts_with('\t') {
+                buffer.delete(ls..ls + 1);
+            }
+        }
     }
 
     fn save_undo(&mut self, buffer: &Buffer) {
@@ -1970,69 +1871,19 @@ impl VimState {
                 buffer.toggle_case_at(*pos);
             }
             ChangeRecord::Indent { line, count } => {
-                for _ in 0..*count {
-                    let ls = buffer.line_start(*line);
-                    buffer.insert(ls, "    ");
-                }
+                self.apply_indent(*line, *line + count.saturating_sub(1), buffer);
             }
             ChangeRecord::Outdent { line, count } => {
-                for _ in 0..*count {
-                    let ls = buffer.line_start(*line);
-                    if buffer.text[ls..].starts_with("    ") {
-                        buffer.delete(ls..ls + 4);
-                    } else if buffer.text[ls..].starts_with('\t') {
-                        buffer.delete(ls..ls + 1);
-                    }
-                }
+                self.apply_outdent(*line, *line + count.saturating_sub(1), buffer);
             }
             ChangeRecord::ToggleCaseRange(range) => {
-                let mut pos = range.start;
-                while pos < range.end && pos < buffer.text.len() {
-                    if buffer.text.is_char_boundary(pos) {
-                        if let Some(c) = buffer.text[pos..].chars().next() {
-                            buffer.toggle_case_at(pos);
-                            pos += c.len_utf8();
-                            continue;
-                        }
-                    }
-                    pos += 1;
-                }
+                self.apply_toggle_case_range(range, buffer);
             }
             ChangeRecord::LowercaseRange(range) => {
-                let safe_start = (range.start..buffer.text.len())
-                    .find(|&i| buffer.text.is_char_boundary(i))
-                    .unwrap_or(range.start);
-                let safe_end = (range.end..=buffer.text.len())
-                    .find(|&i| i == buffer.text.len() || buffer.text.is_char_boundary(i))
-                    .unwrap_or(range.end);
-                if safe_start < safe_end {
-                    let s: String = buffer.text[safe_start..safe_end]
-                        .chars()
-                        .flat_map(|c| c.to_lowercase())
-                        .collect();
-                    buffer.text.drain(safe_start..safe_end);
-                    buffer.text.insert_str(safe_start, &s);
-                    buffer.cursor = safe_start + s.len();
-                    buffer.rebuild_line_starts();
-                }
+                self.apply_case_range(range, false, buffer);
             }
             ChangeRecord::UppercaseRange(range) => {
-                let safe_start = (range.start..buffer.text.len())
-                    .find(|&i| buffer.text.is_char_boundary(i))
-                    .unwrap_or(range.start);
-                let safe_end = (range.end..=buffer.text.len())
-                    .find(|&i| i == buffer.text.len() || buffer.text.is_char_boundary(i))
-                    .unwrap_or(range.end);
-                if safe_start < safe_end {
-                    let s: String = buffer.text[safe_start..safe_end]
-                        .chars()
-                        .flat_map(|c| c.to_uppercase())
-                        .collect();
-                    buffer.text.drain(safe_start..safe_end);
-                    buffer.text.insert_str(safe_start, &s);
-                    buffer.cursor = safe_start + s.len();
-                    buffer.rebuild_line_starts();
-                }
+                self.apply_case_range(range, true, buffer);
             }
             ChangeRecord::Yank => {} // no-op on replay
         }

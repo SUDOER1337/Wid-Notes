@@ -1,6 +1,6 @@
 # Project Architecture
 
-> **Note:** This document describes the long-term vision for Nortex. Sections marked with **status: implemented** reflect current v0.1 capabilities. Unmarked sections are aspirational and describe planned architecture for future versions.
+> **Note:** This document describes the long-term vision for Wid. Sections marked with **status: implemented** reflect current v0.1 capabilities. Unmarked sections are aspirational and describe planned architecture for future versions.
 
 ## Project Vision
 
@@ -145,15 +145,15 @@ The following will never be supported:
 
 ```
 Application
-├── UI Layer          (implemented: egui panels, menus, widget)
+├── UI Layer          (implemented: egui panels, menus, widget, AI split-pane)
 ├── Workspace Layer   (implemented: workspace/mod.rs + config.rs)
 ├── Editor Layer      (implemented: editor/mod.rs — no egui)
 ├── Vim Layer         (implemented: vim/mod.rs + key.rs — no egui)
 ├── Preview Layer     (implemented: preview.rs — pulldown-cmark)
+├── AI Layer          (implemented: ai/ — Ollama client, search providers, conversation persistence, note context)
 ├── Graph Layer       (future: page/block graph)
 ├── Search Layer      (future: full text search)
 ├── Git Layer         (future: commit, diff, revert)
-└── AI Layer          (future: local agents)
 ```
 
 Dependencies only flow downward. UI never directly touches files.
@@ -180,12 +180,12 @@ No UI code.
 Responsible for:
 
 - remembering the last-used workspace path between sessions
-- platform config directory resolution (Linux: `~/.config/nortex`, Windows: `%APPDATA%/Nortex`)
+- platform config directory resolution (Linux: `~/.config/wid`, Windows: `%APPDATA%/Wid`)
 - saving/loading/clearing `session.toml` (serde + toml, no new dependencies)
 
 Location: `src/session.rs`
 
-On launch, `main.rs` calls `session::load_last_workspace()` and passes the result to `NortexApp::new()`. If the path exists and contains a valid `workspace.toml`, the app skips the Welcome screen and opens directly into the editor.
+On launch, `main.rs` calls `session::load_last_workspace()` and passes the result to `WidApp::new()`. If the path exists and contains a valid `workspace.toml`, the app skips the Welcome screen and opens directly into the editor.
 
 On successful `open_workspace()` or `create_workspace()`, the path is persisted via `session::save_last_workspace()`.
 
@@ -286,16 +286,21 @@ No UI code.
 
 ---
 
-## crate::ai **— future**
+## crate::ai **— implemented**
 
 Responsible for:
 
-- provider abstraction
-- retrieval
-- context assembly
-- agent execution
+- Ollama client (model list, streaming chat)
+- web search providers (Brave, SearXNG, DuckDuckGo, Tavily)
+- conversation persistence (per-workspace `.wid/conversations.json`)
+- note context injection from workspace pages/journals
+- AI settings merged into per-workspace `settings.toml`
+- CLI `--search` mode for headless querying
+- GUI AI split-pane panel (View → AI Chat)
 
-Must never depend on UI.
+The AI layer must never depend on UI types (pure data-transform), though the GUI panel in `app.rs` bridges it to egui.
+
+Source: `src/ai/`
 
 ---
 
@@ -409,14 +414,18 @@ Not yet implemented (planned for v0.2+):
 
 ---
 
-# Version 0.2
+# Version 0.2 (Merged from RustyLM)
 
-Add:
+Added:
 
-- local AI provider
-- embeddings
-- retrieval
-- agent panel
+- local AI provider (Ollama client, streaming chat)
+- web search (Brave, SearXNG, DuckDuckGo, Tavily)
+- conversation persistence (per-workspace)
+- note context from workspace pages/journals
+- AI split-pane panel
+- CLI `--search` mode
+
+Former `~/Repositories/ML/RustyLM` project was merged into `src/ai/` and archived.
 
 ---
 

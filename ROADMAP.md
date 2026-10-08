@@ -1,31 +1,55 @@
-# Nortex Roadmap
-
-
-Note: Rename again (Nortex --> "Cromicon") probably final product name
+# Wid Roadmap
 
 > **Last updated:** 2026-06-10
 > **Status:** Planning phase for v0.4
 
-also consider about the editor , 
+# Problems & Ideas
 
-right now there is lack of Clipboard support and mouse support
+## Bugs
+ - editor isn't functional now.
 
--should support `yank` and `paste` operations
--should support mouse operations
+## UI Problems
+ - When the windows is small everything get clustered up
+
+## Whiteboards
+ - The Whiteboard tab switches the main content area from notes to a whiteboard canvas.
+ - The Whiteboard tab itself acts as the control/tool panel for interacting with the canvas.
+ - Whiteboard-specific tools and controls should live within the tab rather than taking up space on the canvas.
+ 
+## Vim bindings
+ - "E" not functionaling correctly
+    - right now it stops at last letter rather than skipping to next word
+
+## UX Ideas
+ - holding shift and will reveal delete buttons on notes
+
+## lack of Clipboard support and mouse support
+ - should support `yank` and `paste` operations
+ - should support mouse operations
  - Selecting with mouse drag which should switch to VISUAL mode
  - Mouse wheel scrolling
 
+## Sidebar 
+ - Sidebar should be on both left and right side (similar to that of Jetbrains IDEs or Android Studio)
+ - Icon should be a 1:1 
+ - possibly customizable
+ - allows pane to render over the other
+
+ ## Find solution to lack of other language unicode supports
+  - need shipped fonts dicision
+  - options for custom fonts
+ 
 ---
 
 ## Session Summary
 
-The following roadmap was defined through an interactive planning session covering three major feature areas for Nortex's v0.4 release. The discussion built on the existing v0.1 MVP (vim modal editing, workspace system, markdown preview) and ARCHITECTURE.md vision, adding a concrete plan for a UI overhaul inspired by the Zed editor.
+The following roadmap was defined through an interactive planning session covering three major feature areas for Wid's v0.4 release. The discussion built on the existing v0.1 MVP (vim modal editing, workspace system, markdown preview) and ARCHITECTURE.md vision, adding a concrete plan for a UI overhaul inspired by the Zed editor.
 
 ### Key decisions made
 
 | Topic | Decision |
 |-------|----------|
-| **UI layout** | Topbarless, boxy style — remove menu bar, inline status, add custom title bar (user-configurable) |
+| **UI layout** | Topbarless, boxy style — menu bar hidden by default, toggled with bare `Alt` (Firefox-style) or View menu; inline status; optional custom title bar (user-configurable) |
 | **Theme file format** | **TOML** — already a dependency, human-readable, supports comments |
 | **Theme cascade** | Built-in default → `~/.config/nortex/theme.toml` (global) → `<workspace>/theme.toml` (per-workspace override) |
 | **Bundled font** | Iosevka Nerd Font (Regular / Medium / Bold variants) |
@@ -39,13 +63,15 @@ The following roadmap was defined through an interactive planning session coveri
 
 ## v0.4 — UI Refresh & Command Palette
 
-A comprehensive UI overhaul bringing Nortex closer to the Zed editor's aesthetic: clean, boxy, content-focused. The theme and font systems make the app deeply customizable, while the command palette unifies vim ex commands and app-specific actions under a single fuzzy-searchable interface.
+A comprehensive UI overhaul bringing Wid closer to the Zed editor's aesthetic: clean, boxy, content-focused. The theme and font systems make the app deeply customizable, while the command palette unifies vim ex commands and app-specific actions under a single fuzzy-searchable interface.
 
 ### Overview
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │ Custom Title Bar (optional, user-configurable)      │
+├─────────────────────────────────────────────────────┤
+│ Menu bar (hidden by default, Alt to reveal)         │
 ├──────────┬──────────────────────────────────────────┤
 │          │                                          │
 │ Sidebar  │          Editor Area                     │
@@ -84,10 +110,10 @@ A comprehensive UI overhaul bringing Nortex closer to the Zed editor's aesthetic
 
 | File | Changes Required |
 |------|-----------------|
-| `src/settings.rs` | Add font config section (`family`, `size`, `weight` per editor/ui), `window.decorated`, `window.titlebar` subsection |
-| `src/app.rs` | Remove `Panel::top("menu_bar")` and `Panel::bottom("status_bar")`. Add command palette rendering. Add conditional custom title bar. Inline status into sidebar. Wire keyboard shortcuts for palette (`Ctrl+P`, `Ctrl+Shift+P`). |
+| `src/settings.rs` | Add font config section (`family`, `size`, `weight` per editor/ui), `window.decorated`, `window.titlebar` subsection, `window.menu_bar` (`"hidden"` default / `"visible"`) |
+| `src/app.rs` | Menu bar becomes hidden by default and toggleable (bare `Alt` reveals it, Firefox-style; also a View menu toggle). Add command palette rendering. Add conditional custom title bar. Inline status into sidebar. Wire keyboard shortcuts for palette (`Ctrl+P`, `Ctrl+Shift+P`). |
 | `src/widget.rs` | Replace all hardcoded `Color32` values with `theme.editor.*` fields. Use configured font from font registry instead of `FontId::monospace(16.0)`. |
-| `src/vim/mod.rs` | Extend `CommandAction` enum with new variants: `TogglePreview`, `ToggleSidebar`, `CreatePage`, `DeletePage`, `OpenNote(String)`, `SearchTags(String)`, `SwitchTheme(String)`, `OpenWorkspace`, `TodayJournal`. Handle `:` key to open palette (not bare command-line mode). |
+| `src/vim/mod.rs` | Extend `CommandAction` enum with new variants: `TogglePreview`, `ToggleSidebar`, `CreatePage`, `DeletePage`, `OpenNote(String)`, `SearchTags(String)`, `SwitchTheme(String)`, `OpenWorkspace`, `TodayJournal`. Handle `:` key to open palette (not bare command-line mode). Add `ToggleMenuBar` variant. |
 | `src/workspace/mod.rs` | Add method to load workspace-level `theme.toml` override. |
 | `src/main.rs` | Load global theme from `~/.config/nortex/theme.toml`. Register fonts with egui context. Set `decorated` from settings. Apply visuals from theme. |
 | `Cargo.toml` | Add `dirs` (global config path resolution), `fuzzy-matcher` (fuzzy scoring for command palette). |
@@ -132,7 +158,7 @@ A comprehensive UI overhaul bringing Nortex closer to the Zed editor's aesthetic
    pub struct SyntaxColors { ... }  // reserved for future use
    ```
 
-3. Store `Theme` in `NortexApp` struct, load once during initialization.
+3. Store `Theme` in `WidApp` struct, load once during initialization.
 
 4. Refactor `widget.rs` — pass `&Theme` to `paint_buffer()` and `editor_ui()`, replace `Color32::from_rgb(...)` literals.
 
@@ -284,7 +310,7 @@ A comprehensive UI overhaul bringing Nortex closer to the Zed editor's aesthetic
    | ID | Label | Ex Keys | Description | Default Keybind |
    |----|-------|---------|-------------|-----------------|
    | `save` | Save | `:w`, `:write` | Write buffer to disk | `Ctrl+S` |
-   | `quit` | Quit | `:q`, `:quit` | Quit Nortex | — |
+   | `quit` | Quit | `:q`, `:quit` | Quit Wid | — |
    | `save_quit` | Save & Quit | `:wq`, `:x` | Save and quit | — |
    | `force_quit` | Force Quit | `:q!`, `:quit!` | Quit without saving | — |
    | `force_save_quit` | Force Save & Quit | `:wq!` | Force save and quit | — |
@@ -300,6 +326,7 @@ A comprehensive UI overhaul bringing Nortex closer to the Zed editor's aesthetic
    | `help` | Help | `:help` | Display help buffer | — |
    | `clear_search` | Clear Search | `:noh`, `:nohlsearch` | Clear search highlights | — |
    | `zen_mode` | Zen Mode | — | Fullscreen editor only | `F11` |
+   | `toggle_menu_bar` | Toggle Menu Bar | `:menubar` | Show/hide the menu bar | `Alt` |
 
 6. Extend `CommandAction` enum in `vim/mod.rs`:
    ```rust
@@ -313,15 +340,16 @@ A comprehensive UI overhaul bringing Nortex closer to the Zed editor's aesthetic
        DeletePage,
        OpenNote,
        SearchTags,
-       SwitchTheme(String),
-       OpenWorkspace,
-       TodayJournal,
-       SetZenMode(bool),
-   }
+        SwitchTheme(String),
+        OpenWorkspace,
+        TodayJournal,
+        SetZenMode(bool),
+        ToggleMenuBar,
+    }
    ```
 
 7. Integrate into `app.rs`:
-   - Add `CommandPalette` field to `NortexApp`
+   - Add `CommandPalette` field to `WidApp`
    - In `render_workspace()`, if `palette.visible`, render overlay after all panels
    - On `:` press: `palette.visible = true`, `palette.input = ":"`
    - On `Ctrl+P` press: `palette.visible = true`, `palette.input = ""`
@@ -340,11 +368,15 @@ A comprehensive UI overhaul bringing Nortex closer to the Zed editor's aesthetic
 
 ### Phase 5 — Layout Cleanup
 
-**Goal:** Remove old menu bar and status bar, finalize the Zed-inspired layout.
+**Goal:** Menu bar hidden by default (revealed on demand), status bar removed, finalize the Zed-inspired layout.
 
 **Steps:**
 
-1. Remove `Panel::top("menu_bar")` block from `app.rs`.
+1. Make the menu bar toggleable instead of deleting it:
+   - Default state: hidden (`settings.window.menu_bar = "hidden"`).
+   - Pressing bare `Alt` (no chord key) reveals it — Firefox-style — and moves focus to the first menu item; pressing `Alt` again or `Escape` hides it.
+   - A `View` menu toggle and the command palette (`ToggleMenuBar`) also flip it.
+   - Bare-`Alt` detection must fire only when no chord key follows — existing `Alt+1`, `Alt+2`, `Alt+T` bindings (`src/app.rs:402-410`) must keep working unchanged.
 
 2. Remove `Panel::bottom("status_bar")` block from `app.rs`.
 
@@ -371,7 +403,7 @@ A comprehensive UI overhaul bringing Nortex closer to the Zed editor's aesthetic
 
 6. Ensure all panels have no visible frames/strokes — just flat colored rectangles.
 
-**Verification:** App launches with clean, flat, boxy appearance. No menu bar visible. Status is readable but unobtrusive.
+**Verification:** App launches with clean, flat, boxy appearance. Menu bar hidden by default and revealed with bare `Alt`; status is readable but unobtrusive.
 
 ---
 
@@ -389,7 +421,7 @@ A comprehensive UI overhaul bringing Nortex closer to the Zed editor's aesthetic
 
 ```toml
 [meta]
-name = "Nortex Dark"
+name = "Wid Dark"
 author = "default"
 
 [editor]
@@ -450,6 +482,7 @@ decorated = false
 titlebar_height = 32.0
 titlebar_buttons = true
 titlebar_drag = true
+menu_bar = "hidden"   # "hidden" (Alt to reveal, Firefox-style) | "visible"
 
 [editor.font]
 family = "Iosevka Nerd Font"

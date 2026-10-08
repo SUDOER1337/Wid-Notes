@@ -1,24 +1,64 @@
+# === Checks & Build ===
 check:
     cargo check
 
-run:
-    cargo run
+clippy:
+    cargo clippy --all-targets
 
-watch:
-    cargo watch -x check
-
-test:
-    cargo test
+fmt:
+    cargo fmt
 
 fix:
-    cargo clippy --fix
+    cargo clippy --fix --all-targets
     cargo fmt
+
+build:
+    cargo build
 
 build-release:
     cargo build --release
 
+ci: fmt-check clippy test check
+
+# === Run ===
+run:
+    cargo run
+
+run-debug:
+    RUST_LOG=debug cargo run
+
+run-release:
+    cargo run --release
+
+# === Watch ===
+watch:
+    cargo watch -x check
+
+watch-run:
+    cargo watch -x run
+
+# === Test ===
+test:
+    cargo test
+
+test-verbose:
+    cargo test -- --nocapture
+
+# === Nix ===
+nix-build:
+    nix build
+
+nix-dev:
+    nix develop
+
+# === Install ===
 install:
     cargo install --path .
 
+# === Clean ===
 clean:
     cargo clean
+
+# === Internal helpers ===
+fmt-check:
+    cargo fmt --check

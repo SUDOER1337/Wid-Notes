@@ -1,4 +1,4 @@
-# Nortex Theming System
+# Wid Theming System
 
 > **Last updated:** 2026-06-12
 > **Status:** Foundation wired into UI, editor uses `theme.editor.*`, Gruvbox built-in, runtime switching via View menu
@@ -12,10 +12,10 @@
 │                    Theme Cascade                        │
 │                                                         │
 │  1. Built-in (selected by settings.theme)               │
-│     ├─ "nortex-dark" (Theme::default)                 │
+│     ├─ "wid-dark" (Theme::default)                 │
 │     └─ "gruvbox"       (Theme::gruvbox)                 │
 │       ↓                                                │
-│  2. ~/.config/nortex/theme.toml  (global override)    │
+│  2. ~/.config/wid/theme.toml  (global override)    │
 │       ↓                                                │
 │  3. <workspace>/theme.toml  (workspace override)        │
 └─────────────────────────────────────────────────────────┘
@@ -57,7 +57,7 @@ See [Appendix A](#appendix-a-full-default-theme) for the complete default theme.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | string | `"Nortex Dark"` | Display name for theme switcher |
+| `name` | string | `"Wid Dark"` | Display name for theme switcher |
 | `author` | string | `"default"` | Author credit |
 
 ### `[editor]` — Editor surface
@@ -140,6 +140,17 @@ background = "#1e1e1e"       # fully opaque dark gray
 selection_bg = "#264f7880"   # semi-transparent blue
 ```
 
+### Excluding colors from light-mode inversion
+
+When `Settings.invert` is on, the resolved theme is inverted channel-wise. Any
+painted color that matches an entry in `invert_excludes` keeps its authored
+value instead — useful for accents that become ugly complements (e.g. a blue
+that flips to orange). List the *dark-palette* values:
+
+```toml
+invert_excludes = ["#0078d4", "#e81123"]
+```
+
 ---
 
 ## Current Implementation Status
@@ -147,25 +158,27 @@ selection_bg = "#264f7880"   # semi-transparent blue
 ### Done
 
 - `Theme` struct with all 7 color groups
-- `Default` impl providing the built-in "Nortex Dark" theme
+- `Default` impl providing the built-in "Wid Dark" theme
 - `#[serde(default)]` on all groups enables partial file support
-- `Theme::builtin(name)` dispatcher — `"nortex-dark"` and `"gruvbox"` built-ins
+- `Theme::builtin(name)` dispatcher — `"wid-dark"` and `"gruvbox"` built-ins
 - `Theme::gruvbox()` — full Gruvbox dark palette across all 7 sections
 - `Theme::build(workspace_root, theme_name)` — cascade loader (builtin → global → workspace)
-- `Theme::load_global()` — reads `~/.config/nortex/theme.toml`
+- `Theme::load_global()` — reads `~/.config/wid/theme.toml`
 - `Theme::load_workspace(path)` — reads `<workspace>/theme.toml`
 - Custom hex color deserializer (`#rrggbb` and `#rrggbbaa`)
 - Custom hex color serializer (round-trips through TOML)
 - Global config path resolved via `$HOME/.config/` (no external `dirs` dep)
 - `Settings.theme` field persisted in `settings.toml`
-- `Theme` field in `NortexApp` struct, built during `new()`/`open_workspace()`/`create_workspace()`
+- `Theme` field in `WidApp` struct, built during `new()`/`open_workspace()`/`create_workspace()`
 - `editor_ui()` accepts `&Theme`, `paint_buffer()` uses `EditorColors` for all hardcoded editor colors:
   - Editor background, foreground, line numbers, selection background
   - Cursor block (Normal/Visual), cursor bar (Insert), cursor text contrast
   - Hint text color
 - `cursor_visual` field on `EditorColors`
-- View → Theme → Nortex Dark / Gruvbox Dark radio menu for runtime switching
+- View → Theme → Wid Dark / Gruvbox Dark radio menu for runtime switching
 - `apply_theme()` helper — rebuilds theme and persists settings
+- `invert_color()` + `Theme::inverted()` — channel-wise light-mode flip of the resolved theme, gated by `Settings.invert` (`Alt+T`, View ▸ Theme ▸ Light mode); egui `Visuals` follow
+- `invert_excludes` — hex list in `theme.toml`; colors equal to an entry are left as-authored during inversion
 
 ### Not yet done
 
@@ -175,17 +188,17 @@ selection_bg = "#264f7880"   # semi-transparent blue
 - `egui::Visuals` derived from theme (dark vs light detection)
 - agnoster/statusline mode indicator colored by `mode` values
 - `:theme reload` hot-reload from disk
-- Theme directory (`~/.config/nortex/themes/*.toml`)
+- Theme directory (`~/.config/wid/themes/*.toml`)
 - Syntax highlighting integration (future)
 
 ---
 
 ## Integration Guide
 
-### Step 1: Add Theme to NortexApp ✅ Done
+### Step 1: Add Theme to WidApp ✅ Done
 
 ```rust
-pub struct NortexApp {
+pub struct WidApp {
     pub theme: Theme,            // ← added
     // ...
 }
@@ -254,11 +267,11 @@ Users should be able to switch themes without restarting:
 | `:theme reload` | Reload `theme.toml` from disk |
 | Command palette | List available themes as palette items |
 
-Themes directory (`~/.config/nortex/themes/`):
+Themes directory (`~/.config/wid/themes/`):
 ```
 themes/
-├── nortex-dark.toml
-├── nortex-light.toml
+├── wid-dark.toml
+├── wid-light.toml
 └── solarized-dark.toml
 ```
 
@@ -270,7 +283,7 @@ Switching is a matter of calling `Theme::build()` again and calling `ctx.request
 
 ```toml
 [meta]
-name = "Nortex Light"
+name = "Wid Light"
 author = "default"
 
 [editor]
@@ -312,8 +325,8 @@ foreground = "#ffffff"
 ```
 
 Save to either:
-- `~/.config/nortex/themes/nortex-light.toml` (global, available for theme switcher)
-- `~/.config/nortex/theme.toml` (global, loads immediately)
+- `~/.config/wid/themes/wid-light.toml` (global, available for theme switcher)
+- `~/.config/wid/theme.toml` (global, loads immediately)
 - `<workspace>/theme.toml` (per-workspace)
 
 ---
@@ -323,14 +336,14 @@ Save to either:
 | Path | Scope | Loaded |
 |------|-------|--------|
 | Built-in `Default` impl | Application | Always (fallback) |
-| `~/.config/nortex/theme.toml` | Global user | At startup |
-| `~/.config/nortex/themes/*.toml` | Global library | On `:theme` command |
+| `~/.config/wid/theme.toml` | Global user | At startup |
+| `~/.config/wid/themes/*.toml` | Global library | On `:theme` command |
 | `<workspace>/theme.toml` | Per-workspace | On workspace open |
 
-The global config directory is resolved via `$HOME/.config/nortex/` (Linux) or `%USERPROFILE%\.config\nortex\` (Windows).
-- **Linux:** `~/.config/nortex/`
-- **Windows:** `%USERPROFILE%\.config\nortex\`
-- **macOS:** `~/.config/nortex/`
+The global config directory is resolved via `$HOME/.config/wid/` (Linux) or `%USERPROFILE%\.config\wid\` (Windows).
+- **Linux:** `~/.config/wid/`
+- **Windows:** `%USERPROFILE%\.config\wid\`
+- **macOS:** `~/.config/wid/`
 
 ---
 
@@ -338,7 +351,7 @@ The global config directory is resolved via `$HOME/.config/nortex/` (Linux) or `
 
 ```toml
 [meta]
-name = "Nortex Dark"
+name = "Wid Dark"
 author = "default"
 
 [editor]
@@ -418,11 +431,11 @@ Common hex colors used in dark themes:
 |-------|-------------|--------|
 | Foundation | Theme struct, hex parser, cascade loader, built-in Gruvbox | ✅ Done |
 | Widget integration | Wire theme into `widget.rs` paint_buffer | ✅ Done |
-| Runtime switching | View menu with Nortex Dark / Gruvbox Dark toggle, persists to settings | ✅ Done |
+| Runtime switching | View menu with Wid Dark / Gruvbox Dark toggle, persists to settings | ✅ Done |
 | App integration | Wire theme into `app.rs` sidebar/status/titlebar colors | ⬜ Pending |
 | Font integration | Bundle Iosevka NF, register with egui | ⬜ Pending |
 | Custom titlebar | Render custom title bar when `decorated: false` | ⬜ Pending |
 | Command palette | Floating overlay with fuzzy search | ⬜ Pending |
-| Theme directory | `~/.config/nortex/themes/*.toml` library with `:theme <name>` | ⬜ Pending |
+| Theme directory | `~/.config/wid/themes/*.toml` library with `:theme <name>` | ⬜ Pending |
 | Theme reload | `:theme reload` hot-reload from disk | ⬜ Pending |
 | Syntax highlighting | Parse markdown AST, apply `theme.syntax.*` | ⬜ Future |

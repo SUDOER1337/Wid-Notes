@@ -1,4 +1,4 @@
-# Nortex
+# Wid - "Write It Down".
 
 A local-first knowledge workspace built with Rust and egui.
 
@@ -122,7 +122,7 @@ The journal file naming convention is `YYYY_MM_DD.md` (e.g., `2026_06_09.md`). T
 
 ## Non-Goals
 
-Nortex will NOT become:
+Wid will NOT become:
 
 - Notion / Obsidian / Roam clone
 - Electron or web application

@@ -1,4 +1,4 @@
-# Nortex Demo
+# Wid Demo
 
 A full-featured **Markdown** note to showcase _all_ the ~~hidden~~ formatting ~~gems~~ options.
 
@@ -112,9 +112,9 @@ print(quicksort([3, 6, 8, 10, 1, 2, 1]))
 
 ```
 $ cargo run --release
-   Compiling nortex v0.1.0
+   Compiling wid v0.1.0
     Finished release profile [optimized] target(s) in 12.34s
-     Running `target/release/nortex.exe`
+     Running `target/release/wid.exe`
 ```
 
 ---

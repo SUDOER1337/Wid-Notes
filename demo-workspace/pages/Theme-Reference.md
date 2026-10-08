@@ -1,13 +1,13 @@
 # Theme Reference
 
-Nortex uses a cascading theme system. Colors are defined in TOML files and merged at startup.
+Wid uses a cascading theme system. Colors are defined in TOML files and merged at startup.
 
 ## Cascade Order
 
 ```
 1. Built-in Dark Theme (default)
        ↓
-2. ~/.config/nortex/theme.toml  (global override)
+2. ~/.config/wid/theme.toml  (global override)
        ↓
 3. <workspace>/theme.toml          (workspace override)
 ```
@@ -40,8 +40,8 @@ line_numbers = "#858585"
 
 | Platform | Global Config Path |
 |----------|-------------------|
-| Windows | `C:\Users\<user>\AppData\Roaming\nortex\theme.toml` |
-| Linux | `~/.config/nortex/theme.toml` |
-| macOS | `~/Library/Application Support/nortex/theme.toml` |
+| Windows | `C:\Users\<user>\AppData\Roaming\wid\theme.toml` |
+| Linux | `~/.config/wid/theme.toml` |
+| macOS | `~/Library/Application Support/wid/theme.toml` |
 
 Create a `theme.toml` in any of these locations to customize colors. See `THEMING.md` for the full reference.

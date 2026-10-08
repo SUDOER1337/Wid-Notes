@@ -1,6 +1,6 @@
 use crate::platform;
 use egui::Color32;
-use serde::de::{self, Visitor};
+use serde::de::{self, Error as _, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
 use std::path::Path;
@@ -50,8 +50,57 @@ fn serialize_color<S: serde::Serializer>(color: &Color32, s: S) -> Result<S::Ok,
     }
 }
 
+fn deserialize_color_vec<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Color32>, D::Error> {
+    Vec::<String>::deserialize(d)?
+        .iter()
+        .map(|s| {
+            parse_hex_color(s).ok_or_else(|| D::Error::custom(format!("invalid hex color: {s}")))
+        })
+        .collect()
+}
+
+fn serialize_color_vec<S: serde::Serializer>(colors: &[Color32], s: S) -> Result<S::Ok, S::Error> {
+    let strs: Vec<String> = colors
+        .iter()
+        .map(|c| {
+            let (r, g, b, a) = (c.r(), c.g(), c.b(), c.a());
+            if a == 255 {
+                format!("#{:02x}{:02x}{:02x}", r, g, b)
+            } else {
+                format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)
+            }
+        })
+        .collect();
+    strs.serialize(s)
+}
+
 fn color(r: u8, g: u8, b: u8) -> Color32 {
     Color32::from_rgb(r, g, b)
+}
+
+/** Invert a color channel-wise for a quick light-mode flip of a dark palette.
+ *  Alpha is preserved; opaque colors (all theme colors) invert cleanly.
+ *  @param c - Color authored for a dark background
+ *  @returns The inverted color, readable on a light background
+ */
+pub fn invert_color(c: Color32) -> Color32 {
+    let [r, g, b, a] = c.to_srgba_unmultiplied();
+    Color32::from_rgba_unmultiplied(255 - r, 255 - g, 255 - b, a)
+}
+
+/** Invert a color unless it is listed in `excluded`.
+ *  Excluded colors keep their authored value, which is how a theme preserves
+ *  accent colors that would become unreadable complements after inversion.
+ *  @param c - Color authored for a dark background
+ *  @param excluded - Colors to leave untouched (empty slices invert everything)
+ *  @returns Excluded colors as-is, everything else inverted
+ */
+pub fn invert_color_if(c: Color32, excluded: &[Color32]) -> Color32 {
+    if excluded.contains(&c) {
+        c
+    } else {
+        invert_color(c)
+    }
 }
 
 // ── Meta ──
@@ -65,7 +114,7 @@ pub struct ThemeMeta {
 impl Default for ThemeMeta {
     fn default() -> Self {
         Self {
-            name: "Nortex Dark".to_string(),
+            name: "Wid Dark".to_string(),
             author: "default".to_string(),
         }
     }
@@ -146,6 +195,26 @@ impl Default for EditorColors {
     }
 }
 
+impl EditorColors {
+    /// Return a copy with every color inverted (light-mode variant),
+    /// skipping colors listed in `excluded`.
+    pub fn inverted(&self, excluded: &[Color32]) -> Self {
+        Self {
+            background: invert_color_if(self.background, excluded),
+            foreground: invert_color_if(self.foreground, excluded),
+            cursor: invert_color_if(self.cursor, excluded),
+            cursor_insert: invert_color_if(self.cursor_insert, excluded),
+            cursor_visual: invert_color_if(self.cursor_visual, excluded),
+            cursor_width: self.cursor_width,
+            selection_bg: invert_color_if(self.selection_bg, excluded),
+            line_numbers: invert_color_if(self.line_numbers, excluded),
+            line_numbers_active: invert_color_if(self.line_numbers_active, excluded),
+            gutter_bg: invert_color_if(self.gutter_bg, excluded),
+            whitespace: invert_color_if(self.whitespace, excluded),
+        }
+    }
+}
+
 // ── Sidebar colors ──
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -201,6 +270,22 @@ impl Default for SidebarColors {
     }
 }
 
+impl SidebarColors {
+    /// Return a copy with every color inverted (light-mode variant),
+    /// skipping colors listed in `excluded`.
+    pub fn inverted(&self, excluded: &[Color32]) -> Self {
+        Self {
+            background: invert_color_if(self.background, excluded),
+            foreground: invert_color_if(self.foreground, excluded),
+            active_bg: invert_color_if(self.active_bg, excluded),
+            active_fg: invert_color_if(self.active_fg, excluded),
+            hover_bg: invert_color_if(self.hover_bg, excluded),
+            border: invert_color_if(self.border, excluded),
+            separator: invert_color_if(self.separator, excluded),
+        }
+    }
+}
+
 // ── Palette colors ──
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -250,6 +335,21 @@ impl Default for PaletteColors {
     }
 }
 
+impl PaletteColors {
+    /// Return a copy with every color inverted (light-mode variant),
+    /// skipping colors listed in `excluded`.
+    pub fn inverted(&self, excluded: &[Color32]) -> Self {
+        Self {
+            background: invert_color_if(self.background, excluded),
+            foreground: invert_color_if(self.foreground, excluded),
+            selected_bg: invert_color_if(self.selected_bg, excluded),
+            selected_fg: invert_color_if(self.selected_fg, excluded),
+            input_bg: invert_color_if(self.input_bg, excluded),
+            border: invert_color_if(self.border, excluded),
+        }
+    }
+}
+
 // ── Titlebar colors ──
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -287,6 +387,19 @@ impl Default for TitlebarColors {
     }
 }
 
+impl TitlebarColors {
+    /// Return a copy with every color inverted (light-mode variant),
+    /// skipping colors listed in `excluded`.
+    pub fn inverted(&self, excluded: &[Color32]) -> Self {
+        Self {
+            background: invert_color_if(self.background, excluded),
+            foreground: invert_color_if(self.foreground, excluded),
+            button_hover: invert_color_if(self.button_hover, excluded),
+            button_close_hover: invert_color_if(self.button_close_hover, excluded),
+        }
+    }
+}
+
 // ── Status colors ──
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -308,6 +421,17 @@ impl Default for StatusColors {
         Self {
             background: color(0x00, 0x7a, 0xcc),
             foreground: color(0xff, 0xff, 0xff),
+        }
+    }
+}
+
+impl StatusColors {
+    /// Return a copy with every color inverted (light-mode variant),
+    /// skipping colors listed in `excluded`.
+    pub fn inverted(&self, excluded: &[Color32]) -> Self {
+        Self {
+            background: invert_color_if(self.background, excluded),
+            foreground: invert_color_if(self.foreground, excluded),
         }
     }
 }
@@ -373,6 +497,23 @@ impl Default for SyntaxColors {
     }
 }
 
+impl SyntaxColors {
+    /// Return a copy with every color inverted (light-mode variant),
+    /// skipping colors listed in `excluded`.
+    pub fn inverted(&self, excluded: &[Color32]) -> Self {
+        Self {
+            keyword: invert_color_if(self.keyword, excluded),
+            string: invert_color_if(self.string, excluded),
+            comment: invert_color_if(self.comment, excluded),
+            function: invert_color_if(self.function, excluded),
+            number: invert_color_if(self.number, excluded),
+            r#type: invert_color_if(self.r#type, excluded),
+            reserved: invert_color_if(self.reserved, excluded),
+            operator: invert_color_if(self.operator, excluded),
+        }
+    }
+}
+
 // ── Top-level Theme ──
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -391,86 +532,92 @@ pub struct Theme {
     pub status: StatusColors,
     #[serde(default)]
     pub syntax: SyntaxColors,
+    /// Colors kept as-authored when light-mode inversion runs.
+    /// Painted values equal to an entry here are exempt from `invert_color`.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_color_vec",
+        serialize_with = "serialize_color_vec"
+    )]
+    pub invert_excludes: Vec<Color32>,
 }
 
 impl Theme {
-    /// Return the built-in Nortex Dark theme (default).
-    pub fn nortex_dark() -> Self {
+    /// Return the built-in Wid Dark theme (default).
+    pub fn wid_dark() -> Self {
         Theme::default()
     }
 
     /// Return the built-in Gruvbox dark theme.
     pub fn gruvbox() -> Self {
-        fn c(r: u8, g: u8, b: u8) -> Color32 {
-            Color32::from_rgb(r, g, b)
-        }
         Theme {
             meta: ThemeMeta {
                 name: "Gruvbox Dark".to_string(),
                 author: "default".to_string(),
             },
             editor: EditorColors {
-                background: c(0x28, 0x28, 0x28),
-                foreground: c(0xeb, 0xdb, 0xb2),
-                cursor: c(0xeb, 0xdb, 0xb2),
-                cursor_insert: c(0xeb, 0xdb, 0xb2),
-                cursor_visual: c(0xfe, 0x80, 0x19),
+                background: color(0x28, 0x28, 0x28),
+                foreground: color(0xeb, 0xdb, 0xb2),
+                cursor: color(0xeb, 0xdb, 0xb2),
+                cursor_insert: color(0xeb, 0xdb, 0xb2),
+                cursor_visual: color(0xfe, 0x80, 0x19),
                 cursor_width: 2.0,
-                selection_bg: c(0x3c, 0x38, 0x36),
-                line_numbers: c(0x50, 0x49, 0x45),
-                line_numbers_active: c(0xa8, 0x99, 0x84),
-                gutter_bg: c(0x28, 0x28, 0x28),
-                whitespace: c(0x3c, 0x38, 0x36),
+                selection_bg: color(0x3c, 0x38, 0x36),
+                line_numbers: color(0x50, 0x49, 0x45),
+                line_numbers_active: color(0xa8, 0x99, 0x84),
+                gutter_bg: color(0x28, 0x28, 0x28),
+                whitespace: color(0x3c, 0x38, 0x36),
             },
             sidebar: SidebarColors {
-                background: c(0x1d, 0x20, 0x21),
-                foreground: c(0xeb, 0xdb, 0xb2),
-                active_bg: c(0x45, 0x85, 0x88),
-                active_fg: c(0xfb, 0xf1, 0xc7),
-                hover_bg: c(0x3c, 0x38, 0x36),
-                border: c(0x3c, 0x38, 0x36),
-                separator: c(0x50, 0x49, 0x45),
+                background: color(0x1d, 0x20, 0x21),
+                foreground: color(0xeb, 0xdb, 0xb2),
+                active_bg: color(0x45, 0x85, 0x88),
+                active_fg: color(0xfb, 0xf1, 0xc7),
+                hover_bg: color(0x3c, 0x38, 0x36),
+                border: color(0x3c, 0x38, 0x36),
+                separator: color(0x50, 0x49, 0x45),
             },
             palette: PaletteColors {
-                background: c(0x1d, 0x20, 0x21),
-                foreground: c(0xeb, 0xdb, 0xb2),
-                selected_bg: c(0x45, 0x85, 0x88),
-                selected_fg: c(0xfb, 0xf1, 0xc7),
-                input_bg: c(0x3c, 0x38, 0x36),
-                border: c(0x50, 0x49, 0x45),
+                background: color(0x1d, 0x20, 0x21),
+                foreground: color(0xeb, 0xdb, 0xb2),
+                selected_bg: color(0x45, 0x85, 0x88),
+                selected_fg: color(0xfb, 0xf1, 0xc7),
+                input_bg: color(0x3c, 0x38, 0x36),
+                border: color(0x50, 0x49, 0x45),
             },
             titlebar: TitlebarColors {
-                background: c(0x28, 0x28, 0x28),
-                foreground: c(0xeb, 0xdb, 0xb2),
-                button_hover: c(0x3c, 0x38, 0x36),
-                button_close_hover: c(0xcc, 0x24, 0x1d),
+                background: color(0x28, 0x28, 0x28),
+                foreground: color(0xeb, 0xdb, 0xb2),
+                button_hover: color(0x3c, 0x38, 0x36),
+                button_close_hover: color(0xcc, 0x24, 0x1d),
             },
             status: StatusColors {
-                background: c(0x28, 0x28, 0x28),
-                foreground: c(0xeb, 0xdb, 0xb2),
+                background: color(0x28, 0x28, 0x28),
+                foreground: color(0xeb, 0xdb, 0xb2),
             },
             syntax: SyntaxColors {
-                keyword: c(0xfb, 0x49, 0x34),
-                string: c(0xb8, 0xbb, 0x26),
-                comment: c(0x92, 0x83, 0x74),
-                function: c(0xfa, 0xbd, 0x2f),
-                number: c(0xd3, 0x86, 0x9b),
-                r#type: c(0x8e, 0xc0, 0x7c),
-                reserved: c(0x83, 0xa5, 0x98),
-                operator: c(0xeb, 0xdb, 0xb2),
+                keyword: color(0xfb, 0x49, 0x34),
+                string: color(0xb8, 0xbb, 0x26),
+                comment: color(0x92, 0x83, 0x74),
+                function: color(0xfa, 0xbd, 0x2f),
+                number: color(0xd3, 0x86, 0x9b),
+                r#type: color(0x8e, 0xc0, 0x7c),
+                reserved: color(0x83, 0xa5, 0x98),
+                operator: color(0xeb, 0xdb, 0xb2),
             },
+            invert_excludes: Vec::new(),
         }
     }
 
-    /// Select a built-in theme by name. Falls back to `nortex-dark` on unknown names.
+    /// Select a built-in theme by name. Falls back to `wid-dark` on unknown names.
     pub fn builtin(name: &str) -> Self {
         match name {
             "gruvbox" => Self::gruvbox(),
-            _ => Self::nortex_dark(),
+            _ => Self::wid_dark(),
         }
     }
 
-    /// Load the global theme from `~/.config/nortex/theme.toml`.
+    /// Load the global theme from `~/.config/wid/theme.toml`.
     pub fn load_global() -> Option<Self> {
         let path = global_theme_path()?;
         Self::load_from(&path)
@@ -498,6 +645,22 @@ impl Theme {
         *self = other;
     }
 
+    /// Return a copy of this theme with every color inverted (light-mode variant).
+    /// Colors listed in `invert_excludes` keep their authored value.
+    pub fn inverted(&self) -> Self {
+        let excluded = self.invert_excludes.as_slice();
+        Self {
+            meta: self.meta.clone(),
+            editor: self.editor.inverted(excluded),
+            sidebar: self.sidebar.inverted(excluded),
+            palette: self.palette.inverted(excluded),
+            titlebar: self.titlebar.inverted(excluded),
+            status: self.status.inverted(excluded),
+            syntax: self.syntax.inverted(excluded),
+            invert_excludes: self.invert_excludes.clone(),
+        }
+    }
+
     /// Build the theme using the cascade: builtin → global → workspace.
     pub fn build(workspace_root: Option<&Path>, theme_name: &str) -> Self {
         let mut theme = Theme::builtin(theme_name);
@@ -520,4 +683,74 @@ impl Theme {
 
 fn global_theme_path() -> Option<std::path::PathBuf> {
     Some(platform::config_dir().join("theme.toml"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /** Inversion flips every channel, preserving alpha.
+     *  @param c - opaque: invert twice → identity
+     */
+    #[test]
+    fn invert_color_round_trips_opaque() {
+        let c = color(0x1e, 0x2f, 0x40);
+        assert_eq!(c, invert_color(invert_color(c)));
+        assert_eq!(invert_color(c), color(0xe1, 0xd0, 0xbf));
+    }
+
+    /** Primary colors flip to their complements (yellow → blue, etc.).
+     *  @param c - saturated accent
+     */
+    #[test]
+    fn invert_color_flips_saturated_hues() {
+        assert_eq!(invert_color(Color32::YELLOW), Color32::from_rgb(0, 0, 255));
+        assert_eq!(invert_color(Color32::RED), Color32::from_rgb(0, 255, 255));
+    }
+
+    /** Excluded colors keep their authored value, everything else inverts.
+     *  @param c - accent to preserve
+     */
+    #[test]
+    fn invert_color_if_skips_excluded() {
+        let excluded = [Color32::RED];
+        assert_eq!(invert_color_if(Color32::RED, &excluded), Color32::RED);
+        assert_eq!(
+            invert_color_if(Color32::GREEN, &excluded),
+            invert_color(Color32::GREEN)
+        );
+    }
+
+    /** Theme::inverted honors the top-level exclude list.
+     *  @param t - theme with an excluded editor background
+     */
+    #[test]
+    fn theme_inverted_respects_excludes() {
+        let t = Theme {
+            editor: EditorColors {
+                background: Color32::RED,
+                ..EditorColors::default()
+            },
+            invert_excludes: vec![Color32::RED],
+            ..Theme::default()
+        };
+        let inv = t.inverted();
+        assert_eq!(inv.editor.background, Color32::RED);
+        assert_ne!(inv.editor.foreground, t.editor.foreground);
+        assert_ne!(inv.editor.cursor, t.editor.cursor);
+    }
+
+    /** Theme.toml round-trips hex color excludes.
+     *  @param t - theme with excludes
+     */
+    #[test]
+    fn invert_excludes_serde_round_trip() {
+        let t = Theme {
+            invert_excludes: vec![color(0x00, 0x7a, 0xcc)],
+            ..Theme::default()
+        };
+        let toml_str = toml::to_string(&t).unwrap();
+        let back: Theme = toml::from_str(&toml_str).unwrap();
+        assert_eq!(t.invert_excludes, back.invert_excludes);
+    }
 }

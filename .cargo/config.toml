@@ -12,6 +12,7 @@ linker = "C:\\Users\\USER\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\li
 rustflags = ["-C", "link-arg=--threads=8"]
 
 # Linux host: fast mold linker (via gcc/clang driver)
+# Nix builds provide mold via nativeBuildInputs automatically.
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-fuse-ld=mold", "-C", "link-arg=-Wl,--threads=8"]
 

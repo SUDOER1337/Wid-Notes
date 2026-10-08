@@ -1,22 +1,50 @@
 [
   {
-    "label": "Just: Install",
-    "command": "just install",
-    "tags": ["build"]
+    "label": "cargo check",
+    "command": "cargo check",
+    "tags": ["rust", "check"],
+    "description": "Check compilation only (faster than build)"
   },
   {
-    "label": "Just: Run",
-    "command": "just run",
-    "tags": ["build"]
+    "label": "cargo build",
+    "command": "cargo build",
+    "tags": ["rust", "build"],
+    "description": "Debug build"
   },
   {
-    "label": "Just: Check",
-    "command": "just check",
-    "tags": ["build"]
+    "label": "cargo build --release",
+    "command": "cargo build --release",
+    "tags": ["rust", "build", "release"],
+    "description": "Release build"
   },
   {
-    "label": "Just: Test",
-    "command": "just test",
-    "tags": ["test"]
+    "label": "cargo run",
+    "command": "cargo run",
+    "tags": ["rust", "run"],
+    "description": "Run debug build"
+  },
+  {
+    "label": "cargo run --release (nix)",
+    "command": "nix develop -c cargo run --release",
+    "tags": ["rust", "run", "release"],
+    "description": "Run release build"
+  },
+  {
+    "label": "cargo test",
+    "command": "cargo test",
+    "tags": ["rust", "test"],
+    "description": "Run all tests"
+  },
+  {
+    "label": "cargo clippy",
+    "command": "cargo clippy",
+    "tags": ["rust", "lint"],
+    "description": "Run clippy lints"
+  },
+  {
+    "label": "cargo fmt",
+    "command": "cargo fmt --check",
+    "tags": ["rust", "format"],
+    "description": "Check formatting"
   }
 ]
