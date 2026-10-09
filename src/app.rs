@@ -176,6 +176,28 @@ impl WidApp {
         app
     }
 
+    /// Run a blocking file dialog on the Tokio runtime to avoid zbus reactor issues.
+    fn run_file_dialog<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce() -> Option<R> + Send + 'static,
+        R: Send + 'static,
+    {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.ai_runtime.spawn(async move {
+            let result = tokio::task::spawn_blocking(f).await.unwrap_or(None);
+            let _ = tx.send(result);
+        });
+        self.ai_runtime.block_on(rx).unwrap_or(None)
+    }
+
+    fn pick_workspace_folder(&self) -> Option<PathBuf> {
+        self.run_file_dialog(|| {
+            rfd::FileDialog::new()
+                .set_title("Select workspace directory")
+                .pick_folder()
+        })
+    }
+
     fn open_workspace(&mut self, path: &std::path::Path) {
         if let Some(ws) = Workspace::open(path) {
             session::save_last_workspace(path);
@@ -540,12 +562,10 @@ impl WidApp {
                         let ws_name = self.prompt_name.clone();
                         self.create_workspace(&path.join(&ws_name), &ws_name);
                     }
-                    if ui.button("Open Existing").clicked()
-                        && let Some(dir) = rfd::FileDialog::new()
-                            .set_title("Select workspace directory")
-                            .pick_folder()
-                    {
-                        self.open_workspace(&dir);
+if ui.button("Open Existing").clicked() {
+                        if let Some(dir) = self.pick_workspace_folder() {
+                            self.open_workspace(&dir);
+                        }
                     }
                 });
             }
@@ -626,10 +646,7 @@ impl WidApp {
                 self.set_theme_name(&target);
             }
             CommandAction::OpenWorkspace => {
-                if let Some(dir) = rfd::FileDialog::new()
-                    .set_title("Select workspace directory")
-                    .pick_folder()
-                {
+                if let Some(dir) = self.pick_workspace_folder() {
                     self.open_workspace(&dir);
                 }
             }
@@ -714,10 +731,7 @@ impl WidApp {
                         }
                         ui.separator();
                         if ui.button("Open Workspace").clicked() {
-                            if let Some(dir) = rfd::FileDialog::new()
-                                .set_title("Select workspace directory")
-                                .pick_folder()
-                            {
+                            if let Some(dir) = self.pick_workspace_folder() {
                                 self.open_workspace(&dir);
                             }
                             ui.close();
@@ -791,18 +805,26 @@ impl WidApp {
         // right panel) lay out in the remaining area instead of being
         // covered by it. A bottom panel declared last would overlap the
         // AI chat input and push it off the bottom of the window.
-        Panel::bottom("status_bar").show_inside(ui, |ui| {
-            ui.horizontal(|ui| {
-                if let Some(ref ws) = self.workspace {
+        Panel::bottom("status_bar")
+            .frame(
+                egui::Frame::new()
+                    .fill(self.theme.editor.background)
+                    .inner_margin(egui::Margin::symmetric(8, 4)),
+            )
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if let Some(ref ws) = self.workspace {
+                        ui.label(
+                            egui::RichText::new(format!("Workspace: {}", ws.config.name))
+                                .color(self.theme.editor.foreground),
+                        );
+                        ui.separator();
+                    }
                     ui.label(
-                        egui::RichText::new(format!("Workspace: {}", ws.config.name))
-                            .color(Color32::GRAY),
+                        egui::RichText::new(&self.status_message).color(self.theme.editor.foreground),
                     );
-                    ui.separator();
-                }
-                ui.label(egui::RichText::new(&self.status_message).color(Color32::GRAY));
+                });
             });
-        });
 
         // Activity bar (VSCode-style icon strip on the far left) — hidden in zen mode
         if !self.zen {
@@ -894,7 +916,7 @@ impl WidApp {
                 };
 
                 egui::Frame::new()
-                    .fill(self.theme.status.background)
+                    .fill(self.theme.editor.background)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.add_space(4.0);
@@ -924,12 +946,12 @@ impl WidApp {
                 // Command line mode input
                 if let Mode::CommandLine = self.vim.mode {
                     egui::Frame::new()
-                        .fill(self.accent(Color32::from_rgb(20, 20, 30)))
+                        .fill(self.theme.editor.background)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 let cmd = self.vim.command_line.clone();
                                 ui.label(
-                                    egui::RichText::new(&cmd).color(self.accent(Color32::WHITE)),
+                                    egui::RichText::new(&cmd).color(self.theme.editor.foreground),
                                 );
                             });
                         });
@@ -1448,22 +1470,27 @@ impl WidApp {
             return;
         };
         let default_name = format!("{}_ai_chat", conv.title.replace(' ', "_"));
+        let model = conv.model.clone();
+        let messages = conv.messages.clone();
 
-        let dialog = rfd::FileDialog::new()
-            .set_title("Export Conversation")
-            .add_filter("Markdown", &["md"])
-            .add_filter("JSON", &["json"])
-            .set_file_name(&default_name);
+        let path = self.run_file_dialog(move || {
+            rfd::FileDialog::new()
+                .set_title("Export Conversation")
+                .add_filter("Markdown", &["md"])
+                .add_filter("JSON", &["json"])
+                .set_file_name(&default_name)
+                .save_file()
+        });
 
-        if let Some(path) = dialog.save_file() {
+        if let Some(path) = path {
             let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("md");
             let result = match ext {
-                "json" => serde_json::to_string_pretty(conv)
+                "json" => serde_json::to_string_pretty(&messages)
                     .map_err(std::io::Error::other)
                     .and_then(|json| std::fs::write(&path, json)),
                 _ => {
-                    let mut md = format!("# AI Conversation — {}\n\n", conv.model);
-                    for msg in &conv.messages {
+                    let mut md = format!("# AI Conversation — {}\n\n", model);
+                    for msg in &messages {
                         let label = match msg.role.as_str() {
                             "user" => "You",
                             "assistant" => "AI",

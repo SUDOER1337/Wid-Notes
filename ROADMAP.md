@@ -6,6 +6,10 @@
 # Problems & Ideas
 
 ## Bugs
+ - Opening workspaces crashes 
+    - log: ```thread 'main' (628261) panicked at /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-vendor-cargo-deps/c19b7c6f923b580ac259164a89f2577984ad5ab09ee9d583b888f934adbbe8d0/zbus-5.19.0/src/abstractions/executor.rs:217:9:
+     there is no reactor running, must be called from the context of a Tokio 1.x runtime
+     note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace```
  - editor isn't functional now. [SOLVED]
  - "E" not functionaling correctly
     - right now it stops at last letter rather than skipping to next word
