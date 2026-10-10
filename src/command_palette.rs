@@ -18,8 +18,8 @@
 use crate::theme::Theme;
 use crate::vim::CommandAction;
 use eframe::egui;
-use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 
 /// Where a palette entry came from — decides how input text is matched.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -430,12 +430,8 @@ impl CommandPalette {
         let galley = ui
             .painter()
             .layout_no_wrap(text, egui::FontId::monospace(14.0), color);
-        let pos = ui.cursor().left_center();
-        ui.painter().galley(
-            egui::pos2(pos.x, pos.y - galley.size().y / 2.0),
-            galley,
-            color,
-        );
+        let pos = ui.cursor().min;
+        ui.painter().galley(egui::pos2(pos.x, pos.y), galley, color);
         ui.add_space(22.0);
         self.paint_rule(ui, theme);
     }

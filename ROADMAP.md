@@ -5,6 +5,9 @@
 
 # Problems & Ideas
 
+## To be implement
+ - Customizable keybinds
+
 ## Bugs
  - Opening workspaces crashes 
     - log: ```thread 'main' (628261) panicked at /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-vendor-cargo-deps/c19b7c6f923b580ac259164a89f2577984ad5ab09ee9d583b888f934adbbe8d0/zbus-5.19.0/src/abstractions/executor.rs:217:9:
@@ -22,7 +25,8 @@
  - The Whiteboard tab itself acts as the control/tool panel for interacting with the canvas.
  - Whiteboard-specific tools and controls should live within the tab rather than taking up space on the canvas.
  
- ## UX Ideas
+ ## UI&UX Ideas
+ - Should allow user to switch from Stylix 
  - holding shift and will reveal delete buttons on notes
 
 ## lack of Clipboard support and mouse support
