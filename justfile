@@ -44,6 +44,11 @@ test:
 test-verbose:
     cargo test -- --nocapture
 
+# === Icons ===
+# Regenerate assets/icons/icon.svg (font-free outlines) from icon.src.svg.
+outline-icon:
+    cargo run --example outline_icon -- assets/icons/icon.src.svg assets/icons/icon.svg
+
 # === Nix ===
 nix-build:
     nix build

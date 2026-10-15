@@ -156,12 +156,17 @@ fn main() -> eframe::Result<()> {
     // Restore last workspace if available
     let last_workspace = session::load_last_workspace();
 
+    let icon_data =
+        eframe::icon_data::from_png_bytes(include_bytes!(concat!(env!("OUT_DIR"), "/icon.png")))
+            .expect("Failed to decode generated window icon");
+
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Glow,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([ws.window.width, ws.window.height])
             .with_min_inner_size([ws.window.min_width, ws.window.min_height])
-            .with_title("Wid"),
+            .with_title("Wid")
+            .with_icon(Arc::new(icon_data)),
         ..Default::default()
     };
 

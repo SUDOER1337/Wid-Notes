@@ -6,7 +6,7 @@ Markdown files are the source of truth. Vim is the primary interaction model. Ev
 
 Inspired by Logseq, Emacs, Penpot and Zed.
 
-![Screenshots](./assets/image.png)
+![Screenshots](./assets/screenshots/image.png)
 
 ## Current Status — v0.1 MVP
 

@@ -1,12 +1,20 @@
 # Wid Roadmap
 
-> **Last updated:** 2026-06-10
+> **Last updated:** 2026-10-16
 > **Status:** Planning phase for v0.4
 
 # Problems & Ideas
 
 ## To be implement
+ - Live disk reload/updates
+ - Delete buttons for notes (see "UI&UX Ideas")
  - Customizable keybinds
+
+## Lack of Clipboard support and mouse support
+ - Support clipboard includes texts and medias
+ - should support `yank` and `paste` operations
+ - should support mouse operations
+ - Mouse wheel scrolling
 
 ## Bugs
  - Opening workspaces crashes 
@@ -25,23 +33,17 @@
  - The Whiteboard tab itself acts as the control/tool panel for interacting with the canvas.
  - Whiteboard-specific tools and controls should live within the tab rather than taking up space on the canvas.
  
- ## UI&UX Ideas
+## UI&UX Ideas
  - Should allow user to switch from Stylix 
  - holding shift and will reveal delete buttons on notes
 
-## lack of Clipboard support and mouse support
- - should support `yank` and `paste` operations
- - should support mouse operations
- - Selecting with mouse drag which should switch to VISUAL mode
- - Mouse wheel scrolling
-
-## Sidebar 
+## Sidebar
  - Sidebar should be on both left and right side (similar to that of Jetbrains IDEs or Android Studio)
  - Icon should be a 1:1 
  - possibly customizable
  - allows pane to render over the other
 
- ## Find solution to lack of other language unicode supports
+## Find solution to lack of other language unicode supports
   - need shipped fonts dicision
   - options for custom fonts
  

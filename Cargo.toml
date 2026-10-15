@@ -38,6 +38,16 @@ fuzzy-matcher = "0.3"
 env_logger = "0.11"
 log = "0.4"
 
+[build-dependencies]
+# Renders assets/icons/icon.svg to PNG (runtime icon) at compile time.
+resvg = "0.45"
+
+[target.'cfg(windows)'.build-dependencies]
+# Embeds a multi-size .ico into wid.exe so Explorer/taskbar show our icon.
+winresource = "0.1"
+
 [dev-dependencies]
 # Headless egui UI test harness — drives WidApp::ui with injected input.
 egui_kittest = "0.34.3"
+# Used only by examples/outline_icon.rs (dev tool to regenerate the icon).
+resvg = "0.45"

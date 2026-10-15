@@ -22,10 +22,20 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
+        # Like craneLib.cleanCargoSource, but keeps assets/icons/*.svg so the
+        # build script can render the window icon inside the Nix sandbox.
+        filteredSrc = pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter =
+            path: type:
+            craneLib.filterCargoSources path type
+            || pkgs.lib.hasSuffix ".svg" (toString path);
+        };
+
         commonArgs = {
-          src = craneLib.cleanCargoSource ./.;
+          src = filteredSrc;
           strictDeps = true;
-          nativeBuildInputs = with pkgs; [ pkg-config mold ];
+          nativeBuildInputs = with pkgs; [ pkg-config mold resvg ];
           buildInputs = with pkgs; [
             gtk3
             glib
@@ -78,6 +88,17 @@
         ];
         eglVendorDir = "${pkgs.mesa}/share/glvnd/egl_vendor.d";
 
+        widDesktop = pkgs.makeDesktopItem {
+          name = "wid";
+          exec = "wid";
+          icon = "wid";
+          comment = "Vim-like note editor";
+          desktopName = "Wid";
+          genericName = "Note editor";
+          categories = [ "Utility" "TextEditor" ];
+          startupNotify = false;
+        };
+
         wid = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
 
@@ -91,6 +112,21 @@
             wrapProgram $out/bin/wid \
               --set VK_DRIVER_FILES "${vulkanIcds}" \
               --set __EGL_VENDOR_LIBRARY_DIRS "${eglVendorDir}"
+          '';
+
+          # Ship the launcher icon in every form the freedesktop spec expects:
+          # a scalable SVG plus PNG fallbacks, and a .desktop entry pointing at
+          # Icon=wid. Without this, Nix-installed Wid has no launcher at all.
+          postInstall = ''
+            install -Dm644 ${./assets/icons/icon.svg} \
+              $out/share/icons/hicolor/scalable/apps/wid.svg
+            for size in 16 32 48 64 128 256 512; do
+              mkdir -p $out/share/icons/hicolor/"$size"x"$size"/apps
+              resvg --width "$size" --height "$size" ${./assets/icons/icon.svg} \
+                $out/share/icons/hicolor/"$size"x"$size"/apps/wid.png
+            done
+            install -Dm644 ${widDesktop}/share/applications/wid.desktop \
+              $out/share/applications/wid.desktop
           '';
         });
       in
