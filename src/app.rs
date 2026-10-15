@@ -562,7 +562,7 @@ impl WidApp {
                         let ws_name = self.prompt_name.clone();
                         self.create_workspace(&path.join(&ws_name), &ws_name);
                     }
-if ui.button("Open Existing").clicked() {
+                    if ui.button("Open Existing").clicked() {
                         if let Some(dir) = self.pick_workspace_folder() {
                             self.open_workspace(&dir);
                         }
@@ -821,7 +821,8 @@ impl WidApp {
                         ui.separator();
                     }
                     ui.label(
-                        egui::RichText::new(&self.status_message).color(self.theme.editor.foreground),
+                        egui::RichText::new(&self.status_message)
+                            .color(self.theme.editor.foreground),
                     );
                 });
             });
