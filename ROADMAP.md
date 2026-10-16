@@ -1,11 +1,11 @@
 # Wid Roadmap
 
 > **Last updated:** 2026-10-16
-> **Status:** Planning phase for v0.4
+> **Status:** v0.4 in progress — theme system, command palette, menu bar toggle, light mode, and mouse selection shipped; font system (Phase 2), custom title bar (Phase 3), and Phase 5 residuals still open
 
 # Problems & Ideas
 
-## To be implement
+## To be implemented
  - Live disk reload/updates
  - Delete buttons for notes (see "UI&UX Ideas")
  - Customizable keybinds
@@ -22,11 +22,13 @@
      there is no reactor running, must be called from the context of a Tokio 1.x runtime
      note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace```
  - editor isn't functional now. [SOLVED]
- - "E" not functionaling correctly
-    - right now it stops at last letter rather than skipping to next word
-
+ - VIM binding not functioning correctly
+    - right now `e` it stops at last letter rather than skipping to next word
+    - when using `a` after `o` , `a` will behave like `o` (it skip to insert the next line)
+    - double `d` should allow deleting current line [SOLVED]
+    
 ## UI Problems
- - When the windows is small everything get clustered up
+ - When the windows is small everything gets cluttered up
 
 ## Whiteboards
  - The Whiteboard tab switches the main content area from notes to a whiteboard canvas.
@@ -44,7 +46,7 @@
  - allows pane to render over the other
 
 ## Find solution to lack of other language unicode supports
-  - need shipped fonts dicision
+  - need shipped fonts decision
   - options for custom fonts
  
 ---
@@ -59,7 +61,7 @@ The following roadmap was defined through an interactive planning session coveri
 |-------|----------|
 | **UI layout** | Topbarless, boxy style — menu bar hidden by default, toggled with bare `Alt` (Firefox-style) or View menu; inline status; optional custom title bar (user-configurable) |
 | **Theme file format** | **TOML** — already a dependency, human-readable, supports comments |
-| **Theme cascade** | Built-in default → `~/.config/nortex/theme.toml` (global) → `<workspace>/theme.toml` (per-workspace override) |
+| **Theme cascade** | Built-in default → `~/.config/wid/theme.toml` (global) → `<workspace>/theme.toml` (per-workspace override) |
 | **Bundled font** | Iosevka Nerd Font (Regular / Medium / Bold variants) |
 | **Font configuration** | User-configurable via `settings.toml` — family, weight, size, custom paths |
 | **Command palette triggers** | `:` (ex prefix), `Ctrl+P`, `Ctrl+Shift+P` — all rebindable via future key mapping page |
@@ -118,13 +120,13 @@ A comprehensive UI overhaul bringing Wid closer to the Zed editor's aesthetic: c
 
 | File | Changes Required |
 |------|-----------------|
-| `src/settings.rs` | Add font config section (`family`, `size`, `weight` per editor/ui), `window.decorated`, `window.titlebar` subsection, `window.menu_bar` (`"hidden"` default / `"visible"`) |
+| `src/settings.rs` | Add font config section (`family`, `size`, `weight` per editor/ui), flat `window.titlebar_*` keys (`titlebar_height`, `titlebar_buttons`, `titlebar_drag`), `window.decorated`, `window.menu_bar` (`"hidden"` default / `"visible"`) |
 | `src/app.rs` | Menu bar becomes hidden by default and toggleable (bare `Alt` reveals it, Firefox-style; also a View menu toggle). Add command palette rendering. Add conditional custom title bar. Inline status into sidebar. Wire keyboard shortcuts for palette (`Ctrl+P`, `Ctrl+Shift+P`). |
 | `src/widget.rs` | Replace all hardcoded `Color32` values with `theme.editor.*` fields. Use configured font from font registry instead of `FontId::monospace(16.0)`. |
 | `src/vim/mod.rs` | Extend `CommandAction` enum with new variants: `TogglePreview`, `ToggleSidebar`, `CreatePage`, `DeletePage`, `OpenNote(String)`, `SearchTags(String)`, `SwitchTheme(String)`, `OpenWorkspace`, `TodayJournal`. Handle `:` key to open palette (not bare command-line mode). Add `ToggleMenuBar` variant. |
 | `src/workspace/mod.rs` | Add method to load workspace-level `theme.toml` override. |
-| `src/main.rs` | Load global theme from `~/.config/nortex/theme.toml`. Register fonts with egui context. Set `decorated` from settings. Apply visuals from theme. |
-| `Cargo.toml` | Add `dirs` (global config path resolution), `fuzzy-matcher` (fuzzy scoring for command palette). |
+| `src/main.rs` | Load global theme from `~/.config/wid/theme.toml`. Register fonts with egui context. Set `decorated` from settings. Apply visuals from theme. |
+| `Cargo.toml` | Add `fuzzy-matcher` (fuzzy scoring for command palette). Global config path resolved via existing `src/platform.rs::config_dir()` — no `dirs` crate needed. |
 
 ---
 
@@ -139,7 +141,7 @@ A comprehensive UI overhaul bringing Wid closer to the Zed editor's aesthetic: c
 1. Create `src/theme.rs` with:
    - `Theme` struct containing all color groups
    - `Default` impl providing the built-in dark theme
-   - `load_global()` → reads `~/.config/nortex/theme.toml`
+   - `load_global()` → reads `~/.config/wid/theme.toml`
    - `load_workspace(path)` → reads `<workspace>/theme.toml`
    - Merging logic: fields present in file override defaults, missing fields keep defaults
    - Serialization/deserialization via `serde` + `toml`
@@ -277,7 +279,7 @@ A comprehensive UI overhaul bringing Wid closer to the Zed editor's aesthetic: c
    pub struct PaletteItem {
        pub id: &'static str,        // unique identifier
        pub label: &'static str,     // display name (e.g., "Save")
-       pub keys: Vec<&'static str>, // triggers (e.g., [":w", ":write"])
+        pub keys: &'static [&'static str], // triggers (e.g. `[":w", ":write"]`)
        pub description: &'static str,
        pub keybind: Option<&'static str>,  // e.g., "Ctrl+S"
        pub category: PaletteCategory,
@@ -291,10 +293,12 @@ A comprehensive UI overhaul bringing Wid closer to the Zed editor's aesthetic: c
 
    pub struct CommandPalette {
        pub visible: bool,
+       pub mode: PaletteMode,   // Commands (registry) or Pages (Ctrl+P page finder)
        input: String,
        items: Vec<PaletteItem>,
        filtered: Vec<usize>,
        selected_index: usize,
+       pages: Vec<String>,      // workspace page names, refreshed while visible
    }
    ```
 
@@ -348,20 +352,26 @@ A comprehensive UI overhaul bringing Wid closer to the Zed editor's aesthetic: c
        DeletePage,
        OpenNote,
        SearchTags,
-        SwitchTheme(String),
-        OpenWorkspace,
-        TodayJournal,
-        SetZenMode(bool),
-        ToggleMenuBar,
-    }
+       SwitchTheme(String),
+       OpenWorkspace,
+       TodayJournal,
+       SetZenMode(bool),
+       ToggleMenuBar,
+       /// `:` pressed — open the command palette with an ex prefix.
+       OpenPalette,
+       /// Run a raw ex command with no dedicated variant (`:help`, `:noh`).
+       Ex(String),
+   }
    ```
+   - `OpenPalette` carries the `:` press out of vim normal mode without keeping `Mode::CommandLine` around.
+   - `Ex(String)` covers palette rows `help` and `clear_search` from the table above — no dedicated variants needed.
 
 7. Integrate into `app.rs`:
    - Add `CommandPalette` field to `WidApp`
    - In `render_workspace()`, if `palette.visible`, render overlay after all panels
-   - On `:` press: `palette.visible = true`, `palette.input = ":"`
-   - On `Ctrl+P` press: `palette.visible = true`, `palette.input = ""`
-   - On `Ctrl+Shift+P` press: `palette.visible = true`, `palette.input = ""`
+   - On `:` press: open palette in **Commands** mode with `input = ":"` (ex prefix preselected)
+   - On `Ctrl+P` press: open palette in **Pages** mode — fuzzy-find workspace pages/journals
+   - On `Ctrl+Shift+P` press: open palette in **Commands** mode with `input = ""` (full command list)
    - Palette captures keyboard when visible (prevent from reaching vim)
    - On action selection: dispatch via `CommandAction` (using existing polling pattern in `render_workspace`)
 
@@ -370,7 +380,7 @@ A comprehensive UI overhaul bringing Wid closer to the Zed editor's aesthetic: c
 
 9. Keep backward compatibility: if user types a complete ex command without selecting from list, execute it directly.
 
-**Verification:** Pressing `:` opens floating command palette; typing `w` filters to `:w`, `:wq`, `:wq!`; pressing `Ctrl+P` shows "Open Note". Selecting an item executes the action.
+**Verification:** Pressing `:` opens floating command palette in Commands mode; typing `w` filters to `:w`, `:write`, `:wq`, `:wq!`; pressing `Ctrl+P` opens the Pages mode page finder; pressing `Ctrl+Shift+P` lists all commands. Selecting an item executes the action.
 
 ---
 
@@ -384,7 +394,7 @@ A comprehensive UI overhaul bringing Wid closer to the Zed editor's aesthetic: c
    - Default state: hidden (`settings.window.menu_bar = "hidden"`).
    - Pressing bare `Alt` (no chord key) reveals it — Firefox-style — and moves focus to the first menu item; pressing `Alt` again or `Escape` hides it.
    - A `View` menu toggle and the command palette (`ToggleMenuBar`) also flip it.
-   - Bare-`Alt` detection must fire only when no chord key follows — existing `Alt+1`, `Alt+2`, `Alt+T` bindings (`src/app.rs:402-410`) must keep working unchanged.
+   - Bare-`Alt` detection must fire only when no chord key follows — existing `Alt+1`, `Alt+2`, `Alt+T` bindings (`src/app.rs:477-484`) must keep working unchanged.
 
 2. Remove `Panel::bottom("status_bar")` block from `app.rs`.
 
@@ -515,8 +525,8 @@ weight = "Regular"
 1. Built-in Dark Theme (hardcoded Default impl)
        ↓
 ┌──────────────────────────────┐
-│  ~/.config/nortex/         │  ← Global config directory
-│  └── theme.toml              │     (resolved via `dirs::config_dir()`)
+│  ~/.config/wid/              │  ← Global config directory
+│  └── theme.toml              │     (resolved via `platform::config_dir()`)
 └──────────────────────────────┘
        ↓
 ┌──────────────────────────────┐
@@ -533,12 +543,12 @@ Partial files are allowed — missing fields fall through to the next level in t
 ┌──────────────────────────────────────────────┐
 │  : w                                         │  ← Input field
 │  ──────────────────────────────────────────  │
-│  :w     Write              (Ctrl+S)          │  ← Selected item (highlighted)
-│  :wq    Save and Quit                        │  ← Filtered list
-│  :wq!   Force Save and Quit                  │
-│  :wqa   Save and Quit All                    │
+│  :w      Write             (Ctrl+S)          │  ← Selected item (highlighted)
+│  :write  Write buffer to disk                │  ← Filtered list
+│  :wq     Save and Quit                       │
+│  :wq!    Force Save and Quit                 │
 │                                              │
-│  3 of 4 matches                              │  ← Status hint
+│  4 of 4 matches                              │  ← Status hint
 └──────────────────────────────────────────────┘
 ```
 
