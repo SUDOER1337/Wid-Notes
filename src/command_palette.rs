@@ -65,7 +65,7 @@ pub enum PaletteOutcome {
     None,
 }
 
-/// Floating fuzzy-search overlay: command palette (`:`, `Ctrl+Shift+P`)
+/// Floating fuzzy-search overlay: command palette (`:`)
 /// and page finder (`Ctrl+P`).
 pub struct CommandPalette {
     pub visible: bool,
@@ -388,7 +388,7 @@ impl CommandPalette {
             .frame(
                 egui::Frame::new()
                     .fill(theme.palette.background)
-                    .stroke(egui::Stroke::new(1.0, theme.palette.border))
+                    .stroke(egui::Stroke::new(1.0_f32, theme.palette.border))
                     .inner_margin(egui::Margin::symmetric(10, 8)),
             )
             .show(ctx, |ui| {
@@ -581,7 +581,7 @@ impl CommandPalette {
         ui.painter().hline(
             rect.left()..=rect.right(),
             y,
-            egui::Stroke::new(1.0, theme.palette.border),
+            egui::Stroke::new(1.0_f32, theme.palette.border),
         );
         ui.add_space(9.0);
     }
@@ -663,6 +663,42 @@ fn registry() -> Vec<PaletteItem> // Static command list
             keybind: None,
             category: App,
             action: CommandAction::ToggleSidebar,
+        },
+        PaletteItem {
+            id: "show_explorer",
+            label: "Show Explorer",
+            keys: &[":explorer"],
+            description: "Open the Explorer side panel",
+            keybind: Some("Ctrl+Shift+E"),
+            category: App,
+            action: CommandAction::ShowExplorer,
+        },
+        PaletteItem {
+            id: "show_search",
+            label: "Show Search",
+            keys: &[":search"],
+            description: "Open the Search side panel",
+            keybind: Some("Ctrl+Shift+F"),
+            category: App,
+            action: CommandAction::ShowSearch,
+        },
+        PaletteItem {
+            id: "show_preview",
+            label: "Show Preview",
+            keys: &[":preview"],
+            description: "Open the markdown Preview side panel",
+            keybind: Some("Ctrl+Shift+P"),
+            category: App,
+            action: CommandAction::ShowPreview,
+        },
+        PaletteItem {
+            id: "show_agent",
+            label: "Show Agent",
+            keys: &[":agent"],
+            description: "Open the AI Agent side panel",
+            keybind: Some("Ctrl+Shift+/"),
+            category: App,
+            action: CommandAction::ShowAgent,
         },
         PaletteItem {
             id: "create_page",
@@ -803,7 +839,7 @@ mod tests {
 
     /// Without a `:` prefix, matching runs over display labels instead.
     #[test]
-    fn command_mode_matches_labels() // Roadmap: Ctrl+Shift+P list
+    fn command_mode_matches_labels() // Roadmap: full command list
     {
         let mut p = CommandPalette::new();
         p.open_commands("");
@@ -945,13 +981,13 @@ mod tests {
 
     /// The registry covers every command in the ROADMAP Phase 4 table.
     #[test]
-    fn registry_covers_roadmap_table() // 18 entries
+    fn registry_covers_roadmap_table() // 22 entries
     {
         let items = registry();
-        assert_eq!(items.len(), 18);
+        assert_eq!(items.len(), 22);
         let mut ids: Vec<&str> = items.iter().map(|i| i.id).collect();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), 18, "registry ids must be unique");
+        assert_eq!(ids.len(), 22, "registry ids must be unique");
     }
 }

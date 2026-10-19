@@ -5,6 +5,10 @@
 
 # Problems & Ideas
 
+# MUST
+
+ - This markdown (ROADMAP.md) should be separated into diffences plan on ./plans
+
 ## To be implemented
  - Live disk reload/updates
  - Delete buttons for notes (see "UI&UX Ideas")

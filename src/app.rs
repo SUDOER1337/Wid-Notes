@@ -30,6 +30,37 @@ enum AppScreen {
     WorkspaceReady,
 }
 
+/// Which surface owns the keyboard this frame.
+///
+/// Panel chords (Ctrl+Shift+E/F/V//) move focus through `Editor → panel →
+/// Editor`, and `widget.rs` only routes keys to vim while this is `Editor`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Focus {
+    /// The vim editor owns the keyboard.
+    Editor,
+    /// The left side panel (Explorer, Search, …) owns the keyboard.
+    Sidebar,
+    /// The right side panel (Preview, Agent) owns the keyboard.
+    Right,
+}
+
+/// Section a row belongs to in the Explorer list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExplorerGroup {
+    Today,
+    Pages,
+    Journals,
+}
+
+/// One selectable Explorer row.
+struct ExplorerRow {
+    group: ExplorerGroup,
+    /// Text painted in the panel.
+    label: String,
+    /// Workspace page the row opens.
+    page: String,
+}
+
 pub struct WidApp {
     screen: AppScreen,
     workspace: Option<Workspace>,
@@ -56,8 +87,17 @@ pub struct WidApp {
     alt_armed: bool,
     /// Previous frame's Alt modifier state, for edge detection.
     alt_was_down: bool,
-    /// Command palette / page finder overlay (`:`, `Ctrl+P`, `Ctrl+Shift+P`).
+    /// Command palette / page finder overlay (`:`, `Ctrl+P`).
     palette: CommandPalette,
+    /// Which surface currently owns the keyboard (editor vs a side panel).
+    focus: Focus,
+    /// Last known right-panel scroll offset, so `j`/`k` can step from it.
+    panel_scroll_offset: f32,
+    /// Pending right-panel scroll, in rows, applied on the next paint.
+    panel_scroll_rows: isize,
+    /// A Search-panel `i` requested focus; applied on the next frame so the
+    /// `i`'s own `Event::Text` cannot land in the field we are focusing.
+    pending_search_focus: bool,
     /// Zen mode hides all chrome around the editor (F11).
     zen: bool,
     /// Sidebar/menu state to restore when zen mode exits.
@@ -133,6 +173,10 @@ impl WidApp {
             alt_armed: false,
             alt_was_down: false,
             palette: CommandPalette::new(),
+            focus: Focus::Editor,
+            panel_scroll_offset: 0.0,
+            panel_scroll_rows: 0,
+            pending_search_focus: false,
             zen: false,
             zen_restore: None,
             page_states: HashMap::new(),
@@ -467,12 +511,6 @@ impl eframe::App for WidApp {
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::S)) {
             self.save_current_page();
         }
-        // Toggle the agent chat in the right side panel
-        if ui.input_mut(|i| {
-            i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::A)
-        }) {
-            self.right.toggle(RightView::Agent);
-        }
         // Theme switching via Alt chords
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::ALT, egui::Key::Num1)) {
             self.set_theme_name("wid-dark");
@@ -499,16 +537,80 @@ impl eframe::App for WidApp {
             let outcome = ui.input_mut(|i| self.palette.handle_input(i));
             self.apply_palette_outcome(outcome, ui.ctx());
 
-            // Palette triggers (roadmap Phase 4 step 7).
+            // Palette triggers (roadmap Phase 4 step 7). `Ctrl+Shift+P` is no
+            // longer a palette trigger: egui-winit eats Ctrl+Shift+V (see the
+            // panel chords below), so the Preview chord moved onto `P`. The
+            // palette keeps `:` (Commands) and `Ctrl+P` (pages). The shift
+            // guard is load-bearing: `consume_key` matches logically and
+            // ignores extra shift (egui input.rs:850), so a bare `Ctrl+P`
+            // pattern would swallow `Ctrl+Shift+P` before Preview saw it.
             if !self.palette.visible {
-                if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::P)) {
+                let pages = ui.input_mut(|i| {
+                    !i.modifiers.shift && i.consume_key(egui::Modifiers::CTRL, egui::Key::P)
+                });
+                if pages {
                     self.refresh_palette_pages();
                     self.palette.open_pages();
                 }
+            }
+
+            // Panel chords (Zed-style). These stay live even while a text
+            // field has focus: a focused search field must not swallow
+            // Ctrl+Shift+P/Q// — it cannot type them anyway. Only the palette,
+            // which owns the keyboard while open, suppresses them.
+            if !self.palette.visible {
+                self.reconcile_focus();
+                self.release_hidden_search_focus(ui);
+
+                // Apply a deferred `i`-focus from the Search panel. winit
+                // commits the `i` as `Event::Text` either alongside the key
+                // press or a frame later, so focusing on the press frame let
+                // the freshly focused field swallow that `i` as typed text.
+                // Swallow the commit here instead, then hand over the field.
+                if self.pending_search_focus {
+                    ui.input_mut(|i| {
+                        i.events
+                            .retain(|e| !matches!(e, egui::Event::Text(t) if t == "i"));
+                    });
+                    set_search_input_focus(ui.ctx(), true);
+                    self.pending_search_focus = false;
+                }
+
+                // Ctrl+Shift+E/F/P// — show, then focus, then release a panel.
+                let chord = egui::Modifiers::CTRL | egui::Modifiers::SHIFT;
+                if ui.input_mut(|i| i.consume_key(chord, Key::E)) {
+                    self.activate_left(SidebarView::Explorer);
+                }
+                if ui.input_mut(|i| i.consume_key(chord, Key::F)) {
+                    // Selecting Search drops the keyboard into the query field
+                    // so the user can type straight away; toggling it off hands
+                    // the field back for panel navigation.
+                    let opened = !(self.sidebar.open && self.sidebar.view == SidebarView::Search);
+                    self.activate_left(SidebarView::Search);
+                    set_search_input_focus(ui.ctx(), opened);
+                }
+                // Ctrl+Shift+P — Preview. `P`, not `V`: egui-winit rewrites
+                // Ctrl+Shift+V into `Event::Paste` and returns before any
+                // `Key::V` is emitted, so a `V` chord can never fire live.
+                if ui.input_mut(|i| i.consume_key(chord, Key::P)) {
+                    self.activate_right(RightView::Preview);
+                }
+                // `Ctrl+Shift+/` is `?` on most layouts and `/` on some.
                 if ui.input_mut(|i| {
-                    i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::P)
+                    i.consume_key(chord, Key::Questionmark) || i.consume_key(chord, Key::Slash)
                 }) {
-                    self.palette.open_commands("");
+                    self.activate_right(RightView::Agent);
+                }
+
+                // Ctrl+Q closes whichever panel owns the keyboard.
+                if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, Key::Q)) {
+                    self.close_focused_panel();
+                }
+
+                // Single-letter navigation stays text-edit-gated so a focused
+                // field keeps receiving j/k/Enter as ordinary characters.
+                if !ui.ctx().text_edit_focused() {
+                    self.handle_panel_keys(ui);
                 }
             }
         }
@@ -623,6 +725,14 @@ impl WidApp {
                 self.right.set_open(RightView::Preview, !open);
             }
             CommandAction::ToggleSidebar => self.sidebar.open = !self.sidebar.open,
+            CommandAction::ShowExplorer => self.activate_left(SidebarView::Explorer),
+            CommandAction::ShowSearch => {
+                let opened = !(self.sidebar.open && self.sidebar.view == SidebarView::Search);
+                self.activate_left(SidebarView::Search);
+                set_search_input_focus(ctx, opened);
+            }
+            CommandAction::ShowPreview => self.activate_right(RightView::Preview),
+            CommandAction::ShowAgent => self.activate_right(RightView::Agent),
             CommandAction::CreatePage => self.new_page_name = "untitled".to_string(),
             CommandAction::DeletePage => self.delete_current_page(),
             CommandAction::OpenNote => {
@@ -679,6 +789,182 @@ impl WidApp {
             pages.extend(ws.journals().iter().cloned());
         }
         self.palette.pages = pages;
+    }
+
+    // ── Panel focus & keybinds ─────────────────────────────
+
+    /** Drop a stale panel focus left behind when a click or menu closed the panel.
+     *  Without this the editor would stay silent forever with no panel to type into.
+     */
+    fn reconcile_focus(&mut self) // Focus follows panel visibility
+    {
+        if self.focus == Focus::Sidebar && !self.sidebar.open {
+            self.focus = Focus::Editor;
+        }
+        if self.focus == Focus::Right && !self.right.open {
+            self.focus = Focus::Editor;
+        }
+    }
+
+    /** Run a Zed-style chord on a left view: reveal → focus → release.
+     *  First press shows the view (focus stays put), a second press moves the
+     *  keyboard into the panel so `j`/`k`/Enter navigate it, a third press
+     *  hands focus back to the editor. Switching views keeps an already
+     *  focused panel focused.
+     *  @param view - The left-panel view the chord selects
+     */
+    fn activate_left(&mut self, view: SidebarView) // Show, focus or unfocus a left view
+    {
+        if self.sidebar.open && self.sidebar.view == view {
+            self.focus = if self.focus == Focus::Sidebar {
+                Focus::Editor
+            } else {
+                Focus::Sidebar
+            };
+        } else {
+            self.sidebar.view = view;
+            self.sidebar.open = true;
+            self.sidebar.cursor = 0;
+            self.sidebar.reveal_cursor = true;
+        }
+    }
+
+    /** Run a Zed-style chord on a right view: reveal → focus → release.
+     *  Same three-step contract as [`Self::activate_left`].
+     *  @param view - The right-panel view the chord selects
+     */
+    fn activate_right(&mut self, view: RightView) // Show, focus or unfocus a right view
+    {
+        if self.right.open && self.right.view == view {
+            self.focus = if self.focus == Focus::Right {
+                Focus::Editor
+            } else {
+                Focus::Right
+            };
+        } else {
+            self.right.view = view;
+            self.right.open = true;
+            self.panel_scroll_offset = 0.0;
+        }
+    }
+
+    /** Ctrl+Q: close the panel that owns the keyboard.
+     *  Focus returns to the editor so keys are never routed at a panel that
+     *  is no longer there; with the editor focused this is a no-op.
+     */
+    fn close_focused_panel(&mut self) // Close the keyboard-focused side panel
+    {
+        match self.focus {
+            Focus::Sidebar => {
+                self.sidebar.open = false;
+                self.focus = Focus::Editor;
+            }
+            Focus::Right => {
+                self.right.open = false;
+                self.focus = Focus::Editor;
+            }
+            Focus::Editor => {}
+        }
+    }
+
+    /** Drop stale focus on the search field once its view leaves the screen.
+     *  egui keeps `TextEdit` focus even after the widget stops rendering, and
+     *  that would starve both the editor and panel navigation (both are gated
+     *  on `text_edit_focused`).
+     *  @param ui - Top-level ui, used for egui memory access
+     */
+    fn release_hidden_search_focus(&self, ui: &egui::Ui) // Release focus on a hidden search field
+    {
+        let visible = self.sidebar.open && self.sidebar.view == SidebarView::Search;
+        if !visible && ui.memory(|m| m.has_focus(search_input_id())) {
+            set_search_input_focus(ui.ctx(), false);
+        }
+    }
+
+    /** Route in-panel navigation while a side panel owns the keyboard.
+     *  Left panel: `j`/`k` (or arrows) move the row cursor, Enter opens the
+     *  row, Escape hands focus back to the editor. Right panel: `j`/`k`
+     *  scroll the content, Escape hands focus back to the editor.
+     *  @param ui - Top-level ui, used to consume the key events
+     */
+    fn handle_panel_keys(&mut self, ui: &egui::Ui) // j/k/Enter/Escape inside a focused panel
+    {
+        if self.focus == Focus::Editor {
+            return;
+        }
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            self.focus = Focus::Editor;
+            return;
+        }
+        // One row per press; `|` maps to a down-stroke, `k` to an up-stroke.
+        let delta = if ui.input_mut(|i| {
+            i.consume_key(egui::Modifiers::NONE, Key::J)
+                || i.consume_key(egui::Modifiers::NONE, Key::ArrowDown)
+        }) {
+            1
+        } else if ui.input_mut(|i| {
+            i.consume_key(egui::Modifiers::NONE, Key::K)
+                || i.consume_key(egui::Modifiers::NONE, Key::ArrowUp)
+        }) {
+            -1
+        } else {
+            0
+        };
+
+        match self.focus {
+            Focus::Editor => {}
+            Focus::Sidebar => {
+                // `i` is vim for "type here": hand the keyboard to the query
+                // field so the Search view stays usable without a mouse. The
+                // focus itself is deferred one frame — see the input block.
+                if self.sidebar.view == SidebarView::Search
+                    && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::I))
+                {
+                    self.pending_search_focus = true;
+                    return;
+                }
+                let len = match self.sidebar.view {
+                    SidebarView::Explorer => self.explorer_rows().len(),
+                    SidebarView::Search => self.sidebar.hits.len(),
+                    _ => 0,
+                };
+                if delta != 0 {
+                    self.sidebar.move_cursor(delta, len);
+                }
+                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
+                    self.activate_panel_row();
+                }
+            }
+            Focus::Right => {
+                if delta != 0 {
+                    self.panel_scroll_rows += delta;
+                    // Manual scrolling takes over from stick-to-bottom.
+                    self.ai_auto_scroll = false;
+                }
+            }
+        }
+    }
+
+    /** Open the row under the left panel's keyboard cursor.
+     *  Explorer rows load their page; Search rows open the hit's page.
+     */
+    fn activate_panel_row(&mut self) // Enter on the focused row
+    {
+        let target = match self.sidebar.view {
+            SidebarView::Explorer => self
+                .explorer_rows()
+                .get(self.sidebar.cursor)
+                .map(|row| row.page.clone()),
+            SidebarView::Search => self
+                .sidebar
+                .hits
+                .get(self.sidebar.cursor)
+                .map(|hit| hit.page.clone()),
+            _ => None,
+        };
+        if let Some(name) = target {
+            self.load_page(&name);
+        }
     }
 
     /** Enter or leave zen mode: hide sidebar/activity bars/menu and go fullscreen.
@@ -905,10 +1191,10 @@ impl WidApp {
                     Mode::CommandLine => "COMMAND",
                 };
                 let mode_color = match self.vim.mode {
-                    Mode::Normal => self.accent(Color32::YELLOW),
-                    Mode::Insert => self.accent(Color32::LIGHT_GREEN),
-                    Mode::Visual(_) => self.accent(Color32::from_rgb(200, 150, 255)),
-                    Mode::CommandLine => self.accent(Color32::LIGHT_BLUE),
+                    Mode::Normal => self.theme.status.mode_normal,
+                    Mode::Insert => self.theme.status.mode_insert,
+                    Mode::Visual(_) => self.theme.status.mode_visual,
+                    Mode::CommandLine => self.theme.status.mode_command,
                 };
                 let modified = if self.vim.needs_save(&self.buffer) {
                     "  ●"
@@ -962,13 +1248,18 @@ impl WidApp {
                 egui::ScrollArea::vertical()
                     .id_salt("editor_scroll")
                     .show(ui, |ui| {
-                        editor_ui(
+                        let editor_focused = self.focus == Focus::Editor;
+                        let refocused = editor_ui(
                             ui,
                             &mut self.vim,
                             &mut self.buffer,
                             &self.settings,
                             &self.theme,
+                            editor_focused,
                         );
+                        if refocused {
+                            self.focus = Focus::Editor;
+                        }
                     });
             } else {
                 ui.vertical_centered(|ui| {
@@ -989,11 +1280,25 @@ impl WidApp {
         if let Some(outcome) = palette_outcome {
             self.apply_palette_outcome(outcome, ui.ctx());
         }
+
+        // One-shot reveal/scroll requests are consumed by the paint above;
+        // clear any that had no list to land on this frame.
+        self.sidebar.reveal_cursor = false;
+        self.panel_scroll_rows = 0;
     }
 
-    /// Explorer view: today's journal, then pages, then past journals.
+    /** Explorer view: today's journal, then pages, then past journals.
+     *  Rows come from `explorer_rows`, so the keyboard cursor and the paint
+     *  can never disagree about what row N is.
+     */
     fn render_explorer(&mut self, ui: &mut egui::Ui) {
-        sidebar::panel_header(ui, "Explorer", None, &self.theme);
+        let focused = self.focus == Focus::Sidebar;
+        sidebar::panel_header(
+            ui,
+            "Explorer",
+            focused.then_some("j/k · Enter · Ctrl+Q"),
+            &self.theme,
+        );
         ui.add_space(8.0);
 
         if sidebar::new_page_control(ui, &mut self.new_page_name, &self.theme) {
@@ -1001,64 +1306,129 @@ impl WidApp {
         }
         ui.add_space(4.0);
 
-        // Clone the names up front so the closure can call &mut self methods.
-        let (today, pages, journals) = self
-            .workspace
-            .as_ref()
-            .map(|ws| {
-                (
-                    ws.today_journal(),
-                    ws.pages().to_vec(),
-                    ws.journals().to_vec(),
-                )
-            })
-            .unwrap_or_default();
-
         if self.workspace.is_none() {
             return;
         }
 
+        let rows = self.explorer_rows();
+        let current = self.current_page.clone();
+        let cursor = self.sidebar.cursor;
+        let reveal = self.sidebar.reveal_cursor;
+        let mut clicked_row: Option<usize> = None;
+        let mut open: Option<String> = None;
+
         egui::ScrollArea::vertical().show(ui, |ui| {
-            // Today's journal leads the list as a single row, not a section.
-            let is_current = self.current_page.as_deref() == Some(today.as_str());
-            if sidebar::nav_row(ui, &format!("Journal: {}", today), is_current, &self.theme) {
-                self.load_page(&today);
-            }
-
-            sidebar::section_label(ui, "Pages", &self.theme);
-            for page in &pages {
-                if *page == today {
-                    continue;
+            let mut group: Option<ExplorerGroup> = None;
+            for (i, row) in rows.iter().enumerate() {
+                if group != Some(row.group) {
+                    match row.group {
+                        ExplorerGroup::Pages => sidebar::section_label(ui, "Pages", &self.theme),
+                        ExplorerGroup::Journals => {
+                            sidebar::section_label(ui, "Journals", &self.theme)
+                        }
+                        ExplorerGroup::Today => {}
+                    }
+                    group = Some(row.group);
                 }
-                let selected = self.current_page.as_deref() == Some(page.as_str());
-                if sidebar::nav_row(ui, &format!("{}.md", page), selected, &self.theme) {
-                    let name = page.clone();
-                    self.load_page(&name);
-                }
-            }
-
-            sidebar::section_label(ui, "Journals", &self.theme);
-            for j in &journals {
-                if *j == today {
-                    continue;
-                }
-                let selected = self.current_page.as_deref() == Some(j.as_str());
-                if sidebar::nav_row(ui, j, selected, &self.theme) {
-                    let name = j.clone();
-                    self.load_page(&name);
+                let is_current = current.as_deref() == Some(row.page.as_str());
+                let row_cursor = self.row_cursor(focused, i, cursor, reveal);
+                if sidebar::nav_row(ui, &row.label, is_current, row_cursor, &self.theme) {
+                    clicked_row = Some(i);
+                    open = Some(row.page.clone());
                 }
             }
         });
+
+        // Clicking a row both opens it and moves the keyboard cursor there,
+        // so `j`/`k` continue from where the mouse left off.
+        if let Some(i) = clicked_row {
+            self.focus = Focus::Sidebar;
+            self.sidebar.cursor = i;
+        }
+        if let Some(name) = open {
+            self.load_page(&name);
+        }
+    }
+
+    /** Map a row index to its keyboard-cursor paint state.
+     *  @param focused - Whether the panel currently owns the keyboard
+     *  @param index - Row index being painted
+     *  @param cursor - The panel's cursor index
+     *  @param reveal - Whether the cursor just moved and needs scrolling into view
+     *  @returns The `RowCursor` state to draw for this row
+     */
+    fn row_cursor(
+        &self,
+        focused: bool,
+        index: usize,
+        cursor: usize,
+        reveal: bool,
+    ) -> sidebar::RowCursor // Cursor paint state for one row
+    {
+        if focused && index == cursor {
+            if reveal {
+                sidebar::RowCursor::Reveal
+            } else {
+                sidebar::RowCursor::On
+            }
+        } else {
+            sidebar::RowCursor::Off
+        }
+    }
+
+    /** Build the Explorer's rows in keyboard order.
+     *  @returns Today's journal, then pages, then past journals (today excluded
+     *           from the latter two, matching the painted sections)
+     */
+    fn explorer_rows(&self) -> Vec<ExplorerRow> // Explorer rows in cursor order
+    {
+        let Some(ws) = &self.workspace else {
+            return Vec::new();
+        };
+        let today = ws.today_journal();
+        let mut rows = vec![ExplorerRow {
+            group: ExplorerGroup::Today,
+            label: format!("Journal: {}", today),
+            page: today.clone(),
+        }];
+        for page in ws.pages() {
+            if *page == today {
+                continue;
+            }
+            rows.push(ExplorerRow {
+                group: ExplorerGroup::Pages,
+                label: format!("{}.md", page),
+                page: page.clone(),
+            });
+        }
+        for journal in ws.journals() {
+            if *journal == today {
+                continue;
+            }
+            rows.push(ExplorerRow {
+                group: ExplorerGroup::Journals,
+                label: journal.clone(),
+                page: journal.clone(),
+            });
+        }
+        rows
     }
 
     /// Search view: case-insensitive substring match across pages and journals.
     fn render_search(&mut self, ui: &mut egui::Ui) {
-        sidebar::panel_header(ui, "Search", None, &self.theme);
+        let focused = self.focus == Focus::Sidebar;
+        sidebar::panel_header(
+            ui,
+            "Search",
+            focused.then_some("j/k · Enter · Ctrl+Q"),
+            &self.theme,
+        );
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = Vec2::new(6.0, 0.0);
             let width = ui.available_width();
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut self.sidebar.query)
+                    .id(search_input_id())
                     .hint_text("Search notes...")
                     .desired_width((width - 48.0).max(40.0)),
             );
@@ -1096,9 +1466,12 @@ impl WidApp {
         );
 
         let hits = self.sidebar.hits.clone();
+        let cursor = self.sidebar.cursor;
+        let reveal = self.sidebar.reveal_cursor;
+        let mut clicked_row: Option<usize> = None;
         let mut open: Option<String> = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for hit in &hits {
+            for (i, hit) in hits.iter().enumerate() {
                 ui.add_space(2.0);
                 ui.label(
                     egui::RichText::new(format!("{}:{}", hit.page, hit.line_no))
@@ -1106,12 +1479,18 @@ impl WidApp {
                         .small(),
                 );
                 let text = hit.line_text.trim().to_string();
-                if sidebar::nav_row(ui, &text, false, &self.theme) {
+                let row_cursor = self.row_cursor(focused, i, cursor, reveal);
+                if sidebar::nav_row(ui, &text, false, row_cursor, &self.theme) {
+                    clicked_row = Some(i);
                     open = Some(hit.page.clone());
                 }
             }
         });
 
+        if let Some(i) = clicked_row {
+            self.focus = Focus::Sidebar;
+            self.sidebar.cursor = i;
+        }
         if let Some(page) = open {
             self.load_page(&page);
         }
@@ -1526,8 +1905,24 @@ impl WidApp {
     /** Right panel: rendered markdown for the buffer currently in the editor.
      *  @param ui - Right side panel ui, inset by the panel frame
      */
+    /** Convert the pending right-panel row steps into a scroll offset.
+     *  @param rows - Pending row steps accumulated by `handle_panel_keys`
+     *  @returns The offset to request, or None when no scroll is pending
+     */
+    fn panel_scroll_request(&self, rows: isize) -> Option<f32> // Pending j/k scroll as a pixel offset
+    {
+        (rows != 0).then(|| {
+            (self.panel_scroll_offset + rows as f32 * self.settings.editor.line_height).max(0.0)
+        })
+    }
+
     fn render_preview_panel(&mut self, ui: &mut egui::Ui) {
-        let hint = self.current_page.as_ref().map(|name| format!("{name}.md"));
+        let focused = self.focus == Focus::Right;
+        let hint: Option<String> = if focused {
+            Some("j/k · Ctrl+Q".to_string())
+        } else {
+            self.current_page.as_ref().map(|name| format!("{name}.md"))
+        };
         sidebar::panel_header(ui, RightView::Preview.label(), hint.as_deref(), &self.theme);
         if self.buffer.text.trim().is_empty() {
             ui.vertical_centered(|ui| {
@@ -1538,28 +1933,32 @@ impl WidApp {
         }
         // auto_shrink keeps the scroll area from collapsing to zero height and
         // coming back each frame, which would jitter the panel header.
-        egui::ScrollArea::vertical()
+        let mut scroll = egui::ScrollArea::vertical()
             .id_salt("preview_scroll")
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                render_markdown(
-                    ui,
-                    &self.buffer.text,
-                    self.is_dark,
-                    &self.theme.invert_excludes,
-                );
-            });
+            .auto_shrink([false, false]);
+        if let Some(offset) = self.panel_scroll_request(self.panel_scroll_rows) {
+            scroll = scroll.vertical_scroll_offset(offset);
+        }
+        let out = scroll.show(ui, |ui| {
+            render_markdown(
+                ui,
+                &self.buffer.text,
+                self.is_dark,
+                &self.theme.invert_excludes,
+            );
+        });
+        self.panel_scroll_offset = out.state.offset.y;
     }
 
     // ── AI Panel Rendering ─────────────────────────────────
 
     fn render_ai_panel(&mut self, ui: &mut egui::Ui) {
-        sidebar::panel_header(
-            ui,
-            RightView::Agent.label(),
-            Some("Ctrl+Shift+A"),
-            &self.theme,
-        );
+        let hint = if self.focus == Focus::Right {
+            Some("j/k · Ctrl+Q")
+        } else {
+            Some("Ctrl+Shift+/")
+        };
+        sidebar::panel_header(ui, RightView::Agent.label(), hint, &self.theme);
 
         // Conversation selector
         ui.horizontal(|ui| {
@@ -1664,12 +2063,17 @@ impl WidApp {
         let Some(conv) = self.current_conv() else {
             return;
         };
-        let scroll = ScrollArea::vertical()
+        let mut scroll = ScrollArea::vertical()
+            .id_salt("ai_chat_scroll")
             .auto_shrink([false, false])
             .stick_to_bottom(self.ai_auto_scroll);
+        // A manual j/k scroll must win over stick-to-bottom for this frame.
+        if let Some(offset) = self.panel_scroll_request(self.panel_scroll_rows) {
+            scroll = scroll.vertical_scroll_offset(offset);
+        }
 
         let mut retry = false;
-        scroll.show(ui, |ui| {
+        let out = scroll.show(ui, |ui| {
             if conv.messages.is_empty() && !self.ai_is_streaming {
                 ui.vertical_centered(|ui| {
                     ui.add_space(20.0);
@@ -1756,6 +2160,7 @@ impl WidApp {
                 );
             }
         });
+        self.panel_scroll_offset = out.state.offset.y;
 
         if retry {
             self.ai_retry();
@@ -2528,6 +2933,407 @@ mod editor_input_repro {
             2,
             "plain click did not land on line 3 (cursor = {})",
             app.buffer.cursor
+        );
+    }
+}
+
+// ── Panel focus plumbing ────────────────────────────────────
+//
+// The search field lives in the left panel, but panel focus is driven from
+// the top of `WidApp::ui` (chords, the palette, `i`). A stable id lets that
+// outer code move egui's text focus without reaching into `render_search`.
+
+/// Stable id for the sidebar search field.
+fn search_input_id() -> egui::Id // Stable id for the sidebar search field
+{
+    egui::Id::new("wid_search_input")
+}
+
+/** Move keyboard focus into or out of the sidebar search field.
+ *  @param ctx - egui context whose memory is shared by every panel
+ *  @param focused - true focuses the field, false releases it
+ */
+fn set_search_input_focus(ctx: &egui::Context, focused: bool) // Focus or release the search field
+{
+    ctx.memory_mut(|m| {
+        if focused {
+            m.request_focus(search_input_id());
+        } else {
+            m.surrender_focus(search_input_id());
+        }
+    });
+}
+
+// ── Panel keybind repro harness ─────────────────────────────
+//
+// Drives the real `WidApp::ui` through egui_kittest, asserting the
+// Zed-style chord contract from plans/keybind.md: first press shows
+// a panel, second press focuses it (vim nav inside), Ctrl+Q closes
+// only the focused panel.
+
+#[cfg(test)]
+mod panel_keys_repro {
+    use super::*;
+    use eframe::App as _;
+    use egui_kittest::Harness;
+
+    /** Build a WidApp in WorkspaceReady with two extra pages and both
+     *  side panels closed, so each test starts from the same state.
+     *  @returns A WidApp backed by a throwaway workspace in the temp dir
+     */
+    fn panel_app() -> WidApp {
+        let mut app = WidApp::new(None, Settings::default());
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock before epoch")
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("wid-panel-repro-{}-{unique}", std::process::id()));
+        let mut ws = Workspace::create(&dir, "repro").expect("create temp workspace");
+        ws.create_page("alpha").expect("create page alpha");
+        ws.create_page("beta").expect("create page beta");
+        app.workspace = Some(ws);
+        app.screen = AppScreen::WorkspaceReady;
+        app.show_prompt = false;
+        // Load today's journal (Explorer row 0) so the central editor widget is
+        // rendered and `j`/Enter has a different row to open.
+        let today = app
+            .workspace
+            .as_ref()
+            .expect("workspace was just set")
+            .today_journal();
+        app.load_page(&today);
+        app.sidebar.open = false;
+        app.right.open = false;
+        app.focus = Focus::Editor;
+        app
+    }
+
+    /** Wrap a WidApp in a headless egui harness that renders `app.ui`.
+     *  @param app - The app under test (moved into the harness state)
+     *  @returns A Harness driving one `WidApp::ui` call per frame
+     */
+    fn harness(app: WidApp) -> Harness<'static, WidApp> {
+        Harness::builder()
+            .with_size(egui::vec2(1200.0, 800.0))
+            .with_max_steps(50)
+            .build_ui_state(
+                |ui, app: &mut WidApp| {
+                    let mut frame = eframe::Frame::_new_kittest();
+                    app.ui(ui, &mut frame);
+                },
+                app,
+            )
+    }
+
+    /** Press Ctrl+Shift+E/F/V or Ctrl+Shift+/ the way winit delivers it.
+     *  @param h - Harness under test
+     *  @param key - The logical key (`Key::Questionmark` for Ctrl+Shift+/)
+     */
+    fn chord(h: &mut Harness<'static, WidApp>, key: egui::Key) {
+        h.key_down_modifiers(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, key);
+        h.key_up_modifiers(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, key);
+        h.step();
+    }
+
+    /** Press a plain Ctrl chord.
+     *  @param h - Harness under test
+     *  @param key - The key held with Ctrl
+     */
+    fn ctrl(h: &mut Harness<'static, WidApp>, key: egui::Key) {
+        h.key_down_modifiers(egui::Modifiers::CTRL, key);
+        h.key_up_modifiers(egui::Modifiers::CTRL, key);
+        h.step();
+    }
+
+    /** Press one character key the way winit does: Key down, Text, Key up.
+     *  kittest's `key_press` only sends the key event, so tests that care
+     *  about character input must add the `Event::Text` winit delivers.
+     *  @param h - Harness under test
+     *  @param key - The logical key that was pressed
+     *  @param text - The text winit commits alongside the key
+     */
+    fn type_char(h: &mut Harness<'static, WidApp>, key: egui::Key, text: &str) // Full winit key triple
+    {
+        h.event(egui::Event::Key {
+            key,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+            repeat: false,
+            physical_key: None,
+        });
+        h.event(egui::Event::Text(text.to_string()));
+        h.event(egui::Event::Key {
+            key,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+            repeat: false,
+            physical_key: None,
+        });
+        h.step();
+    }
+
+    /** Ctrl+Shift+E: first press shows Explorer, second focuses it, Ctrl+Q closes. */
+    #[test]
+    fn ctrl_shift_e_show_focus_close() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::E);
+        assert!(
+            h.state().sidebar.open,
+            "Ctrl+Shift+E did not open the Explorer"
+        );
+        assert_eq!(h.state().focus, Focus::Editor, "first press must not focus");
+
+        chord(&mut h, egui::Key::E);
+        assert_eq!(
+            h.state().focus,
+            Focus::Sidebar,
+            "second Ctrl+Shift+E did not focus the Explorer"
+        );
+
+        ctrl(&mut h, egui::Key::Q);
+        assert!(
+            !h.state().sidebar.open,
+            "Ctrl+Q did not close the focused Explorer"
+        );
+        assert_eq!(h.state().focus, Focus::Editor, "focus stuck after close");
+    }
+
+    /** Ctrl+Shift+F shows the Search view; the chord is mode-reuse-safe. */
+    #[test]
+    fn ctrl_shift_f_shows_search() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::F);
+        assert!(h.state().sidebar.open, "Ctrl+Shift+F did not open Search");
+        assert_eq!(
+            h.state().sidebar.view,
+            SidebarView::Search,
+            "Ctrl+Shift+F did not select the Search view"
+        );
+    }
+
+    /** Ctrl+Shift+P shows Preview; Ctrl+Q only closes it while focused. */
+    #[test]
+    fn ctrl_shift_p_preview_and_ctrl_q_noop_when_unfocused() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::P);
+        assert!(h.state().right.open, "Ctrl+Shift+P did not open Preview");
+        assert_eq!(h.state().focus, Focus::Editor);
+
+        ctrl(&mut h, egui::Key::Q);
+        assert!(
+            h.state().right.open,
+            "Ctrl+Q with the editor focused must not close a panel"
+        );
+
+        chord(&mut h, egui::Key::P);
+        assert_eq!(h.state().focus, Focus::Right);
+        ctrl(&mut h, egui::Key::Q);
+        assert!(!h.state().right.open, "Ctrl+Q did not close Preview");
+    }
+
+    /** Ctrl+Shift+/ opens the Agent — as `?` on a US layout. */
+    #[test]
+    fn ctrl_shift_slash_opens_agent() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::Questionmark);
+        assert!(h.state().right.open, "Ctrl+Shift+/ did not open Agent");
+        assert_eq!(h.state().right.view, RightView::Agent);
+    }
+
+    /** Ctrl+Shift+/ also works when the layout reports `Key::Slash`. */
+    #[test]
+    fn ctrl_shift_slash_opens_agent_slash_key() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::Slash);
+        assert!(
+            h.state().right.open,
+            "Ctrl+Shift+/ (as Key::Slash) did not open Agent"
+        );
+        assert_eq!(h.state().right.view, RightView::Agent);
+    }
+
+    /** With Explorer focused, `j` then Enter loads the row under the cursor.
+     *  Explorer rows are [today, pages…, journals…], so `j` lands on the
+     *  first created page ("alpha").
+     */
+    #[test]
+    fn focused_explorer_j_enter_loads_page() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::E); // show
+        chord(&mut h, egui::Key::E); // focus
+        assert_eq!(h.state().focus, Focus::Sidebar);
+
+        h.key_press(egui::Key::J);
+        h.step();
+        assert_eq!(h.state().sidebar.cursor, 1, "'j' did not move the cursor");
+
+        h.key_press(egui::Key::Enter);
+        h.step();
+        assert_eq!(
+            h.state().current_page.as_deref(),
+            Some("alpha"),
+            "Enter did not open the row under the cursor"
+        );
+    }
+
+    /** Escape hands focus back to the editor but leaves the panel open. */
+    #[test]
+    fn escape_releases_focus_but_keeps_panel_open() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::E);
+        chord(&mut h, egui::Key::E);
+        assert_eq!(h.state().focus, Focus::Sidebar);
+
+        h.key_press(egui::Key::Escape);
+        h.step();
+        assert_eq!(
+            h.state().focus,
+            Focus::Editor,
+            "Escape did not release focus"
+        );
+        assert!(h.state().sidebar.open, "Escape must not close the panel");
+    }
+
+    /** While a panel is focused the editor ignores keys typed into it. */
+    #[test]
+    fn editor_ignores_keys_while_panel_focused() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::E);
+        chord(&mut h, egui::Key::E);
+        assert_eq!(h.state().focus, Focus::Sidebar);
+
+        h.event(egui::Event::Text("i".to_string()));
+        h.step();
+        assert_eq!(
+            h.state().vim.mode,
+            Mode::Normal,
+            "'i' reached vim while the Explorer was focused"
+        );
+
+        // Escape hands the keyboard back and 'i' works again.
+        h.key_press(egui::Key::Escape);
+        h.step();
+        h.event(egui::Event::Text("i".to_string()));
+        h.step();
+        if h.state().vim.mode != Mode::Insert {
+            h.step();
+        }
+    }
+
+    /** Ctrl+Shift+F lands the keyboard in the query field, and the panel
+     *  chords keep working while that field owns egui's text focus.
+     *  Regression: the whole chord block used to sit behind
+     *  `!text_edit_focused()`, so a focused field killed V, Q and `/`.
+     */
+    #[test]
+    fn search_autofocus_keeps_panel_chords_alive() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::F);
+        assert_eq!(h.state().sidebar.view, SidebarView::Search);
+
+        // The query field took focus, so plain text lands there, not in vim.
+        h.event(egui::Event::Text("alpha".to_string()));
+        h.step();
+        assert_eq!(
+            h.state().sidebar.query,
+            "alpha",
+            "Ctrl+Shift+F did not focus the search field"
+        );
+        assert_eq!(
+            h.state().vim.mode,
+            Mode::Normal,
+            "typed text leaked into the editor while the search field was focused"
+        );
+
+        // Chords must stay live while the field is focused.
+        chord(&mut h, egui::Key::P);
+        assert!(
+            h.state().right.open && h.state().right.view == RightView::Preview,
+            "Ctrl+Shift+P died while the search field was focused"
+        );
+        chord(&mut h, egui::Key::Questionmark);
+        assert_eq!(
+            h.state().right.view,
+            RightView::Agent,
+            "Ctrl+Shift+/ died while the search field was focused"
+        );
+    }
+
+    /** `i` hands a focused panel back to the query field, and Ctrl+Q still
+     *  closes the panel while that field owns the keyboard. */
+    #[test]
+    fn search_i_refocuses_field_and_ctrl_q_still_closes() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::F); // open Search, field auto-focused
+        chord(&mut h, egui::Key::F); // focus the panel, field released
+        assert_eq!(h.state().focus, Focus::Sidebar);
+
+        h.key_press(egui::Key::I);
+        h.step();
+        h.event(egui::Event::Text("alpha".to_string()));
+        h.step();
+        assert_eq!(
+            h.state().sidebar.query,
+            "alpha",
+            "'i' did not hand the keyboard to the search field"
+        );
+
+        ctrl(&mut h, egui::Key::Q);
+        assert!(
+            !h.state().sidebar.open,
+            "Ctrl+Q did not close Search while its field was focused"
+        );
+        assert_eq!(h.state().focus, Focus::Editor, "focus stuck after close");
+    }
+
+    /** `i` focuses the query field without also typing an `i` into it.
+     *  Regression: winit delivers a `Key::I` press *and* `Event::Text("i")`
+     *  for the same keystroke. Only the key press was consumed, so the field
+     *  we had just focused swallowed the stray text and inserted an `i`.
+     *  Pure kittest `key_press` hid this bug by sending the key alone.
+     */
+    #[test]
+    fn search_i_focuses_field_without_typing_an_i() {
+        let mut h = harness(panel_app());
+        h.step();
+
+        chord(&mut h, egui::Key::F); // open Search, field auto-focused
+        chord(&mut h, egui::Key::F); // focus the panel, field released
+        assert_eq!(h.state().focus, Focus::Sidebar);
+
+        type_char(&mut h, egui::Key::I, "i");
+        assert_eq!(
+            h.state().sidebar.query,
+            "",
+            "`i` typed itself into the field while focusing it"
+        );
+
+        type_char(&mut h, egui::Key::X, "x");
+        assert_eq!(
+            h.state().sidebar.query,
+            "x",
+            "the field did not take focus after `i`"
         );
     }
 }

@@ -1,0 +1,4 @@
+# Explorer plan
+
+- Hides `.md`
+-

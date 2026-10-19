@@ -6,6 +6,8 @@
 - there will be a keybind to close default is CTRL + Q 
 
 # Heavily based on default Zed
+# (Preview is P, not V: egui-winit turns Ctrl+Shift+V into a paste event)
 CTRL + SHIFT + E | Explorer
 CTRL + SHIFT + / | Agent
-CTRL + SHIFT + F | Search (should be called find)
+CTRL + SHIFT + F | Search
+CTRL + SHIFT + P | Preview

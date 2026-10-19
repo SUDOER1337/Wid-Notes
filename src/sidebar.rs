@@ -5,6 +5,7 @@
 // RailIcon()         - Glyph vocabulary shared by both rails
 // RailSide()         - Which window edge a rail hugs (decides the accent edge)
 // RailEntry          - Trait implemented by both view enums so one rail renderer serves them
+// RowCursor()        - Keyboard-cursor state drawn on a navigation row
 // SearchHit()        - One matching line produced by the Search view
 // Sidebar            - Left activity-bar selection + side panel state
 // RightSidebar       - Right activity-bar selection + side panel state
@@ -14,6 +15,7 @@
 //   SidebarView::all()            - Ordered list of views shown in the activity bar
 //   Sidebar::toggle(view)         - Open a view, or collapse the panel if already active
 //   Sidebar::is_active(view)      - Whether a view is the currently selected one
+//   Sidebar::move_cursor(d, len)  - Move the keyboard cursor within a list, clamped + flagged for reveal
 //   Sidebar::activity_bar_ui()    - Draw the left icon strip and handle selection clicks
 //   RightView::label()            - Human readable title for the right panel header
 //   RightView::all()              - Ordered list of right-rail views
@@ -219,6 +221,17 @@ pub trait RailEntry: Copy + PartialEq {
     }
 }
 
+/// Keyboard-cursor state drawn on a navigation row while its panel is focused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowCursor {
+    /// Not the keyboard cursor row.
+    Off,
+    /// The keyboard cursor row; leave it where the user scrolled it.
+    On,
+    /// The keyboard cursor row that just moved — scroll it back into view.
+    Reveal,
+}
+
 /// One matching line from the Search view.
 #[derive(Clone, Debug)]
 pub struct SearchHit {
@@ -242,6 +255,10 @@ pub struct Sidebar {
     pub hits: Vec<SearchHit>,
     /// Whether the last search produced zero results (drives the empty-state text).
     pub searched: bool,
+    /// Row index the keyboard cursor sits on while the panel is focused.
+    pub cursor: usize,
+    /// Set when `cursor` moved, so the next paint scrolls the row into view.
+    pub reveal_cursor: bool,
 }
 
 impl Default for Sidebar {
@@ -252,6 +269,8 @@ impl Default for Sidebar {
             query: String::new(),
             hits: Vec::new(),
             searched: false,
+            cursor: 0,
+            reveal_cursor: false,
         }
     }
 }
@@ -273,6 +292,25 @@ impl Sidebar {
     /// Whether `view` is the one currently driving the side panel.
     pub fn is_active(&self, view: SidebarView) -> bool {
         self.open && self.view == view
+    }
+
+    /** Move the keyboard cursor within a list of `len` selectable rows.
+     *  Clamps at both ends; only a real move flags the row for reveal, so
+     *  scrolling the cursor at the top or bottom does not nudge the viewport.
+     *  @param delta - Signed row offset (-1 up, +1 down)
+     *  @param len - Number of selectable rows in the active list
+     */
+    pub fn move_cursor(&mut self, delta: isize, len: usize) // Move + clamp keyboard cursor
+    {
+        if len == 0 {
+            return;
+        }
+        let last = (len - 1) as isize;
+        let next = (self.cursor as isize + delta).clamp(0, last) as usize;
+        if next != self.cursor {
+            self.reveal_cursor = true;
+        }
+        self.cursor = next;
     }
 
     /** Render the left activity bar: a vertical strip of square icon buttons.
@@ -504,7 +542,7 @@ fn paint_icon(painter: &egui::Painter, rect: Rect, icon: RailIcon, color: Color3
     // Design-grid coords -> screen. Only ever multiplied by `scale`.
     let p = |x: f32, y: f32| origin + Vec2::new(x, y) * scale;
 
-    let stroke = Stroke::new(1.6, color);
+    let stroke = Stroke::new(1.6_f32, color);
     let line =
         |a: (f32, f32), b: (f32, f32)| Shape::line_segment([p(a.0, a.1), p(b.0, b.1)], stroke);
     let dot = |x: f32, y: f32| Shape::circle_filled(p(x, y), 2.0 * scale, color);
@@ -668,19 +706,28 @@ pub fn section_label(ui: &mut egui::Ui, text: &str, theme: &Theme) {
 
 /** Draw one full-width navigation row; returns true when it was clicked.
  *  A selected row gets a soft fill plus the left accent stripe, so the open
- *  document reads as a sidebar item rather than a text selection.
+ *  document reads as a sidebar item rather than a text selection. The keyboard
+ *  cursor row mirrors that treatment so `j`/`k` navigation stays legible.
  *  @param ui - Panel ui, positioned at the top of the row
  *  @param text - Row label, ellipsized when the panel is narrow
  *  @param selected - Whether this row points at the document currently open
+ *  @param cursor - Whether this row carries the panel's keyboard cursor
  *  @param theme - Active theme for fill, accent and text colors
  *  @returns True when the row was clicked
  */
-pub fn nav_row(ui: &mut egui::Ui, text: &str, selected: bool, theme: &Theme) -> bool {
+pub fn nav_row(
+    ui: &mut egui::Ui,
+    text: &str,
+    selected: bool,
+    cursor: RowCursor,
+    theme: &Theme,
+) -> bool {
     let width = ui.available_width().max(0.0);
     let (response, painter) = ui.allocate_painter(Vec2::new(width, ROW_HEIGHT), Sense::click());
     let rect = response.rect;
+    let focused = cursor != RowCursor::Off;
 
-    if selected {
+    if selected || focused {
         painter.rect_filled(rect, CORNER_RADIUS, selected_bg(theme));
         let stripe = Rect::from_min_size(rect.left_top(), Vec2::new(ACCENT_WIDTH, rect.height()));
         painter.rect_filled(stripe, 0.0, theme.sidebar.active_fg);
@@ -688,12 +735,17 @@ pub fn nav_row(ui: &mut egui::Ui, text: &str, selected: bool, theme: &Theme) -> 
         painter.rect_filled(rect, CORNER_RADIUS, theme.sidebar.hover_bg);
     }
 
-    let color = if selected {
+    let color = if selected || focused {
         theme.sidebar.active_fg
     } else {
         theme.sidebar.foreground
     };
     label_in_rect(ui, rect, text, color, ENTRY_TEXT_SIZE);
+
+    // One-shot: only the frame right after a cursor move echoes a scroll request.
+    if cursor == RowCursor::Reveal {
+        response.scroll_to_me(Some(egui::Align::Center));
+    }
 
     response.clicked()
 }
@@ -716,14 +768,14 @@ pub fn new_page_control(ui: &mut egui::Ui, text: &mut String, theme: &Theme) -> 
         // focus handling keep working; only the colors are themed here.
         let visuals = &mut ui.visuals_mut();
         // A quiet 1px ring instead of the bright default selection stroke.
-        visuals.selection.stroke = Stroke::new(1.0, subtle_fg(theme));
+        visuals.selection.stroke = Stroke::new(1.0_f32, subtle_fg(theme));
         for widget in [
             &mut visuals.widgets.inactive,
             &mut visuals.widgets.hovered,
             &mut visuals.widgets.active,
         ] {
             widget.corner_radius = CORNER_RADIUS.into();
-            widget.bg_stroke = Stroke::new(1.0, theme.sidebar.border);
+            widget.bg_stroke = Stroke::new(1.0_f32, theme.sidebar.border);
         }
 
         let edit = ui.add(
@@ -924,6 +976,32 @@ mod tests {
         assert!(sb.open);
         assert!(sb.is_active(SidebarView::Graph));
         assert!(!sb.is_active(SidebarView::Explorer));
+    }
+
+    /// The keyboard cursor clamps at both ends and only flags a real move.
+    #[test]
+    fn move_cursor_clamps_and_flags_moves() {
+        let mut sb = Sidebar::default();
+
+        sb.move_cursor(-1, 3);
+        assert_eq!(sb.cursor, 0, "cursor cannot move above the first row");
+        assert!(!sb.reveal_cursor, "a clamped move must not request reveal");
+
+        sb.move_cursor(1, 3);
+        assert_eq!(sb.cursor, 1);
+        assert!(sb.reveal_cursor, "a real move must request reveal");
+
+        sb.reveal_cursor = false;
+        sb.move_cursor(5, 3);
+        assert_eq!(sb.cursor, 2, "cursor cannot move past the last row");
+        assert!(sb.reveal_cursor);
+
+        sb.reveal_cursor = false;
+        sb.move_cursor(1, 3);
+        assert!(!sb.reveal_cursor, "clamped move at the end is not a move");
+
+        sb.move_cursor(1, 0);
+        assert_eq!(sb.cursor, 2, "an empty list leaves the cursor untouched");
     }
 
     /// Every view needs a distinct label for tooltips and panel headers.

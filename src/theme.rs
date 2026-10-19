@@ -414,6 +414,26 @@ pub struct StatusColors {
         serialize_with = "serialize_color"
     )]
     pub foreground: Color32,
+    #[serde(
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
+    pub mode_normal: Color32,
+    #[serde(
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
+    pub mode_insert: Color32,
+    #[serde(
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
+    pub mode_visual: Color32,
+    #[serde(
+        deserialize_with = "deserialize_color",
+        serialize_with = "serialize_color"
+    )]
+    pub mode_command: Color32,
 }
 
 impl Default for StatusColors {
@@ -421,6 +441,10 @@ impl Default for StatusColors {
         Self {
             background: color(0x00, 0x7a, 0xcc),
             foreground: color(0xff, 0xff, 0xff),
+            mode_normal: color(0xff, 0xff, 0x00),
+            mode_insert: color(0x90, 0xee, 0x90),
+            mode_visual: color(0xc8, 0x96, 0xff),
+            mode_command: color(0xad, 0xd8, 0xe6),
         }
     }
 }
@@ -432,6 +456,10 @@ impl StatusColors {
         Self {
             background: invert_color_if(self.background, excluded),
             foreground: invert_color_if(self.foreground, excluded),
+            mode_normal: invert_color_if(self.mode_normal, excluded),
+            mode_insert: invert_color_if(self.mode_insert, excluded),
+            mode_visual: invert_color_if(self.mode_visual, excluded),
+            mode_command: invert_color_if(self.mode_command, excluded),
         }
     }
 }
@@ -594,6 +622,10 @@ impl Theme {
             status: StatusColors {
                 background: color(0x28, 0x28, 0x28),
                 foreground: color(0xeb, 0xdb, 0xb2),
+                mode_normal: color(0xfa, 0xbd, 0x2f),
+                mode_insert: color(0xb8, 0xbb, 0x26),
+                mode_visual: color(0xd3, 0x86, 0x9b),
+                mode_command: color(0x83, 0xa5, 0x98),
             },
             syntax: SyntaxColors {
                 keyword: color(0xfb, 0x49, 0x34),

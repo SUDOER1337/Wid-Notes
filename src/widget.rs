@@ -4,13 +4,24 @@ use crate::theme::{EditorColors, Theme};
 use crate::vim::{KeyPress, Mode, VimState};
 use egui::{self, Align2, Event, FontId, Pos2, Rect, Vec2};
 
+/** The vim editor widget: paints the buffer and bridges egui input to VimState.
+ *  @param ui - The panel ui the editor lives in
+ *  @param state - Vim mode, registers and pending-operator state
+ *  @param buffer - The text buffer being edited
+ *  @param settings - Editor metrics (font, line height, padding)
+ *  @param theme - Editor colors for text, cursor and selection
+ *  @param keyboard_focused - Whether the editor owns the keyboard (Focus::Editor)
+ *  @returns True when the pointer clicked or started a drag in the editor
+ */
 pub fn editor_ui(
     ui: &mut egui::Ui,
     state: &mut VimState,
     buffer: &mut Buffer,
     settings: &Settings,
     theme: &Theme,
-) {
+    keyboard_focused: bool,
+) -> bool // Paint the editor and feed it keyboard input
+{
     let es = &settings.editor;
     let ec = &theme.editor;
     let available = ui.available_size();
@@ -20,14 +31,15 @@ pub fn editor_ui(
         ui.memory_mut(|mem| mem.request_focus(response.id));
     }
 
-    // Route keyboard events to vim unless a text field (chat, search, prompt,
-    // settings) holds them. Deliberately NOT gated on this widget's focus:
-    // egui surrenders focus on every Escape (EventFilter.escape defaults to
-    // false) and our auto-generated id shifts when the central-panel layout
-    // changes — either would silently kill all keyboard input while the
-    // cursor keeps painting. Text fields consume their events during their
-    // own pass (all rendered before the editor), so nothing is double-handled.
-    if !ui.ctx().text_edit_focused() {
+    // Route keyboard events to vim only while the editor owns the keyboard
+    // (Focus::Editor) and no text field holds them. Deliberately NOT gated on
+    // this widget's egui focus: egui surrenders focus on every Escape
+    // (EventFilter.escape defaults to false) and our auto-generated id shifts
+    // when the central-panel layout changes — either would silently kill all
+    // keyboard input while the cursor keeps painting. Text fields consume
+    // their events during their own pass (all rendered before the editor), so
+    // nothing is double-handled.
+    if keyboard_focused && !ui.ctx().text_edit_focused() {
         ui.ctx().input_mut(|input| {
             let mut keep = Vec::new();
             for ev in input.events.drain(..) {
@@ -51,6 +63,9 @@ pub fn editor_ui(
     // fires on a drag, so the two paths are mutually exclusive.
     let inner = rect.shrink2(Vec2::new(es.padding, es.padding));
     let scroll = view_scroll(buffer, inner, es);
+
+    // Report back so the app can hand the keyboard back to the editor.
+    let grabbed = response.clicked() || response.drag_started();
 
     if response.drag_started() {
         // Anchor at the press position — interact_pointer_pos tracks the
@@ -83,6 +98,7 @@ pub fn editor_ui(
     }
 
     paint_buffer(ui, buffer, state, rect, es, ec);
+    grabbed
 }
 
 fn paint_buffer(

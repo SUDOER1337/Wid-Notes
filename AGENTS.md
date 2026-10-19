@@ -13,6 +13,8 @@ Wid/
 ├── THEMING.md        — theme system documentation
 ├── README.md
 ├── .gitignore
+├── plans/
+│   └── explorer.md    — (empty) plans for file-explorer feature
 └── src/
     ├── main.rs          — eframe entry point, CLI --search mode
     ├── app.rs           — main UI layout, panels, menu bar, workspace prompt, AI chat panel
@@ -116,6 +118,30 @@ workspace/
 - On workspace open, today's journal is auto-created and loaded
 - Sidebar lists today's journal (always first), then pages, then other journals
 
+## Platform gotchas
+
+### egui-winit swallows Ctrl+V / Ctrl+X / Ctrl+C (and their Shift variants)
+
+`egui-winit` converts the clipboard shortcuts into `egui::Event::Cut/Copy/Paste`
+*before* it ever emits `egui::Event::Key`, so an app can never receive a
+`Key::V`/`Key::X`/`Key::C` press while Ctrl (Cmd on macOS) is held:
+
+- `egui-winit-0.34.3/src/lib.rs:1011-1027` — the cut/copy/paste check runs first and `return`s
+- `:1317 is_paste_command` = `modifiers.command && Key::V` (also matches **Ctrl+Shift+V**)
+- `:1305 is_cut_command` = `command && Key::X`, `:1311 is_copy_command` = `command && Key::C`
+- if the clipboard is **empty**, egui-winit pushes *nothing at all* (`:1019-1026`), so the
+  chord fires intermittently depending on clipboard contents
+
+Consequences:
+
+- A chord on Ctrl+Shift+V (or X/C) is dead in the real app — the Preview panel was
+  originally bound to Ctrl+Shift+V and had to move to **Ctrl+Shift+P**. Never bind
+  Ctrl+Shift+{V,X,C}.
+- `egui_kittest` injects raw `egui::Event::Key` directly, bypassing this conversion, so
+  unit tests **cannot** catch the problem — the chord tests passed while the live chord
+  did nothing. Verify such chords by hand (or via a rail/menu click path).
+- Mouse/rail/menu paths are unaffected.
+
 ## Status
 
 ### Done
@@ -166,19 +192,25 @@ workspace/
 - AI persistence `SaveData` gains `version: u32` field for future migration support
 - Light mode via channel-wise color inversion — `settings.invert` flips any resolved theme to a light variant (`Theme::inverted()`, `invert_color()`), egui `Visuals` follow (`Alt+T` or View ▸ Theme ▸ Light mode; `Alt+1`/`Alt+2` switch built-in themes); `theme.toml` `invert_excludes` keeps listed colors as-authored
 - Hardcoded dark-palette accents (mode colors, command-line strip, AI chat bubbles/roles, markdown headings) now route through `invert_color()` in light mode
+- Status-bar vim mode indicator text is themeable — `[status]` gains `mode_normal`/`mode_insert`/`mode_visual`/`mode_command` (hex, inverted with the palette); `app.rs` mode-color match now reads `theme.status.mode_*` instead of hardcoded `Color32::YELLOW`/`LIGHT_GREEN`/etc
 - `Settings.theme`/`invert` gain `#[serde(default)]` so older `settings.toml` files no longer silently fall back to defaults
 - Menu bar hidden by default with Firefox-style toggle — bare `Alt` press/release reveals it (chords like `Alt+1`/`Alt+2`/`Alt+T` do not), View ▸ Menu bar checkbox and `:menubar` ex command (`CommandAction::ToggleMenuBar`) also flip it; startup state from `settings.window.menu_bar` (`"hidden"` default / `"visible"`, `#[serde(default)]`)
-- v0.4 Phase 4 command palette (`src/command_palette.rs`) — `:` opens palette in Commands mode with `:` prefix (replaces bare command-line mode), `Ctrl+P` pages finder, `Ctrl+Shift+P` full command list, fuzzy scoring via `fuzzy-matcher`; palette input drained at top of `WidApp::ui()` before the editor; unmatched ex input (`:e foo`) falls back to `VimState::execute_command`; zen mode (`F11`/palette) hides activity bars + menu and goes fullscreen; deviations from ROADMAP: added `CommandAction::OpenPalette` and `Ex(String)` variants, `Ctrl+P` is the pages finder not a generic picker; 9 unit tests in `src/command_palette.rs` cover ex/label filtering, selection clamping, raw-ex fallback, page finder, zen toggle, registry completeness
+- v0.4 Phase 4 command palette (`src/command_palette.rs`) — `:` opens palette in Commands mode with `:` prefix (replaces bare command-line mode), `Ctrl+P` pages finder, fuzzy scoring via `fuzzy-matcher`; palette input drained at top of `WidApp::ui()` before the editor; unmatched ex input (`:e foo`) falls back to `VimState::execute_command`; zen mode (`F11`/palette) hides activity bars + menu and goes fullscreen; deviations from ROADMAP: added `CommandAction::OpenPalette` and `Ex(String)` variants, `Ctrl+P` is the pages finder not a generic picker, **the palette's `Ctrl+Shift+P` (full command list) trigger was dropped** — the Preview panel chord took that key because egui-winit swallows Ctrl+Shift+V (see Platform gotchas); the command list remains reachable via `:`; 9 unit tests in `src/command_palette.rs` cover ex/label filtering, selection clamping, raw-ex fallback, page finder, zen toggle, registry completeness
 - Editor keyboard input unblocked — `editor_ui()` now routes keys to vim when `!ctx.text_edit_focused()` instead of `response.has_focus()` (`src/widget.rs:36`); the old focus gate died three ways: egui surrenders focus on every Escape (`EventFilter.escape` defaults to false, so `i`→`Esc` killed all input), the editor's auto-generated widget id shifts when the command-line strip appears (orphaning focus), and nothing focused at startup; 6 egui_kittest regression tests in `src/app.rs:2093` (`editor_input_repro`) drive real pointer/key events through `WidApp::ui`
 - Mouse selection — drag in the editor selects text and enters Visual (charwise) mode, plain click moves the cursor / clears the selection / returns to Normal; hit-testing (`pos_to_byte`) shares the painter's monospace grid and cursor-tracked scroll (`view_scroll`); drag anchors use `pointer.press_origin()` (not `interact_pointer_pos`, which tracks the live drag position); 2 more `editor_input_repro` tests cover drag-select and click-to-clear
+- Panel keybinds (Zed-style) — `Ctrl+Shift+E` Explorer, `Ctrl+Shift+F` Search, `Ctrl+Shift+P` Preview (was `V`, blocked by egui-winit), `Ctrl+Shift+/` Agent; first press shows the panel (focus stays on editor), second press focuses the panel (vim `j`/`k`/`Enter`/`Escape` navigation), `Ctrl+Q` closes only the focused panel; Escape returns focus to editor but leaves panels open; Explorer/Search rows are keyboard-navigable with cursor reveal/scroll; right panels support `j`/`k` scrolling while focused; `Focus` enum (`Editor/Sidebar/Right`) + `reconcile_focus()` added; `CommandAction` gains `ShowExplorer/ShowSearch/ShowPreview/ShowAgent`; `nav_row` and `Sidebar` gain keyboard cursor state; 8 `panel_keys_repro` kittest tests added.
+- Panel chords unblocked while a text field is focused — the chord block (and `Ctrl+Q`) used to sit behind `!ctx.text_edit_focused()`, so focusing the Search field silently killed `Ctrl+Shift+P/Q//` while the ungated legacy `Ctrl+Shift+A` kept working; chords now run whenever `!palette.visible` (only single-letter nav stays text-edit-gated), `Ctrl+Shift+F` auto-focuses the query field (`search_input_id()` + `set_search_input_focus()`), `i` in the focused Search panel hands the keyboard to the field, `release_hidden_search_focus()` drops stale `TextEdit` focus when the view is swapped away, and the Agent header hint reads `Ctrl+Shift+/` (`Ctrl+Shift+A` remains a legacy toggle alias); 2 `panel_keys_repro` regression tests (`search_autofocus_keeps_panel_chords_alive`, `search_i_refocuses_field_and_ctrl_q_still_closes`) bring the suite to 180.
+- Search `i` no longer types an `i` — winit commits the `i` keystroke as `Event::Text` alongside (or one frame after) the key press, and focusing the field on the press frame let it swallow that text; the focus is now deferred one frame via `pending_search_focus`, and the pending commit is dropped before the handover (kittest `step()` runs one frame per queued event, which is what exposed the split and forced the one-frame deferral); `search_i_focuses_field_without_typing_an_i` adds the full winit key-down/text/key-up triple and brings the suite to 181.
 
 ### Todo
 
+- Panels should focus on first open — pressing a panel chord should reveal *and* focus the panel in one press (today the first press only reveals, so the chord must be pressed twice); needs a decision on how this interacts with re-pressing the chord (release to editor?) and with the Search query-field auto-focus
 - v0.4 Phase 2 — font system: `src/fonts.rs` (FontRegistry), bundled Iosevka NF in `assets/`, `[editor.font]`/`[ui.font]`/`[fonts.custom]` settings, replace `FontId::monospace(16.0)` in `widget.rs` (see ROADMAP.md)
 - v0.4 Phase 3 — custom title bar: `src/titlebar.rs`, `[window] decorated/titlebar_*` settings
 - v0.4 Phase 5 residuals — remove `Panel::bottom("status_bar")` (`src/app.rs`), inline status everywhere, boxy styling (ROADMAP.md:379-387)
 - Fix theme cascade merge — `Theme::replace()` resets missing sections to defaults instead of falling through to global/builtin (ROADMAP.md:496)
 - Date format TBD for journal filenames
+- File explorer feature — plans in `plans/explorer.md` (currently empty)
 
 ## Dependencies
 

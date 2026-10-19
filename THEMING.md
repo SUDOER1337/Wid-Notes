@@ -114,6 +114,10 @@ See [Appendix A](#appendix-a-full-default-theme) for the complete default theme.
 |-------|------|---------|-------------|
 | `background` | hex color | `#007acc` | Status bar background |
 | `foreground` | hex color | `#ffffff` | Status bar text |
+| `mode_normal` | hex color | `#ffff00` | Mode indicator text — Normal |
+| `mode_insert` | hex color | `#90ee90` | Mode indicator text — Insert |
+| `mode_visual` | hex color | `#c896ff` | Mode indicator text — Visual |
+| `mode_command` | hex color | `#add8e6` | Mode indicator text — Command |
 
 ### `[syntax]` — Syntax highlighting (future)
 
@@ -179,6 +183,7 @@ invert_excludes = ["#0078d4", "#e81123"]
 - `apply_theme()` helper — rebuilds theme and persists settings
 - `invert_color()` + `Theme::inverted()` — channel-wise light-mode flip of the resolved theme, gated by `Settings.invert` (`Alt+T`, View ▸ Theme ▸ Light mode); egui `Visuals` follow
 - `invert_excludes` — hex list in `theme.toml`; colors equal to an entry are left as-authored during inversion
+- Status-bar mode indicator colors (`mode_normal`/`mode_insert`/`mode_visual`/`mode_command` on `[status]`) — themed and inverted with the rest of the palette (was hardcoded `Color32::YELLOW`/etc in `app.rs:907`)
 
 ### Not yet done
 
@@ -186,7 +191,6 @@ invert_excludes = ["#0078d4", "#e81123"]
 - `:theme` command → `SwitchTheme` action
 - Runtime theme reloading (watch file or `:theme reload`)
 - `egui::Visuals` derived from theme (dark vs light detection)
-- agnoster/statusline mode indicator colored by `mode` values
 - `:theme reload` hot-reload from disk
 - Theme directory (`~/.config/wid/themes/*.toml`)
 - Syntax highlighting integration (future)
@@ -228,7 +232,7 @@ All 7 hardcoded `Color32::from_rgb(...)` calls replaced with `ec.background`, `e
 |----------|------------------|--------------|
 | `app.rs:498` — status bar frame fill | `Color32::from_rgb(20, 20, 30)` | `theme.sidebar.background` or `theme.status.background` |
 | `app.rs:432` — "Pages" label | `Color32::GRAY` | `theme.sidebar.foreground` |
-| `app.rs:503` — mode indicator | `Color32::YELLOW` / `Color32::LIGHT_GREEN` / etc | Keep mode colors or let theme define them |
+| `app.rs:503` — mode indicator | `Color32::YELLOW` / `Color32::LIGHT_GREEN` / etc | ✅ Done — `theme.status.mode_*` |
 | `app.rs:559` — bottom status bar | `Color32::GRAY` | `theme.status.foreground` |
 | `app.rs:562` — workspace name | `Color32::GRAY` | `theme.status.foreground` |
 
@@ -393,6 +397,10 @@ button_close_hover = "#e81123"
 [status]
 background = "#007acc"
 foreground = "#ffffff"
+mode_normal = "#ffff00"
+mode_insert = "#90ee90"
+mode_visual = "#c896ff"
+mode_command = "#add8e6"
 
 [syntax]
 reserved = "#569cd6"

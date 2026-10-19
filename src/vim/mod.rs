@@ -116,6 +116,14 @@ pub enum CommandAction {
     OpenPalette,
     TogglePreview,
     ToggleSidebar,
+    /// Open the Explorer side panel (Ctrl+Shift+E).
+    ShowExplorer,
+    /// Open the Search side panel (Ctrl+Shift+F).
+    ShowSearch,
+    /// Open the Preview side panel (Ctrl+Shift+P).
+    ShowPreview,
+    /// Open the Agent side panel (Ctrl+Shift+/).
+    ShowAgent,
     CreatePage,
     DeletePage,
     OpenNote,
